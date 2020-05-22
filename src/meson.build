@@ -11,7 +11,7 @@ plugin_sources = [
   'file-avif-exif.cpp'
 ]
 
-avif_minver      = '0.6.0'
+avif_minver      = '0.7.3'
 avif             = dependency('libavif',            version: '>='+avif_minver, required : false )
 
 gimpui           = dependency('gimpui-3.0')
