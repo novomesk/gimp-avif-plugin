@@ -39,8 +39,6 @@ struct aom_codec_alg_priv {
   aom_codec_priv_t base;
   aom_codec_dec_cfg_t cfg;
   aom_codec_stream_info_t si;
-  int postproc_cfg_set;
-  aom_postproc_cfg_t postproc_cfg;
   aom_image_t img;
   int img_avail;
   int flushed;
@@ -399,12 +397,6 @@ static void init_buffer_callbacks(aom_codec_alg_priv_t *ctx) {
   }
 }
 
-static void set_default_ppflags(aom_postproc_cfg_t *cfg) {
-  cfg->post_proc_flag = AOM_DEBLOCK | AOM_DEMACROBLOCK;
-  cfg->deblocking_level = 4;
-  cfg->noise_level = 0;
-}
-
 static int frame_worker_hook(void *arg1, void *arg2) {
   FrameWorkerData *const frame_worker_data = (FrameWorkerData *)arg1;
   const uint8_t *data = frame_worker_data->data;
@@ -477,11 +469,6 @@ static aom_codec_err_t init_decoder(aom_codec_alg_priv_t *ctx) {
   frame_worker_data->pbi->row_mt = ctx->row_mt;
 
   worker->hook = frame_worker_hook;
-
-  // If postprocessing was enabled by the application and a
-  // configuration has not been provided, default it.
-  if (!ctx->postproc_cfg_set && (ctx->base.init_flags & AOM_CODEC_USE_POSTPROC))
-    set_default_ppflags(&ctx->postproc_cfg);
 
   init_buffer_callbacks(ctx);
 
@@ -953,20 +940,6 @@ static aom_codec_err_t ctrl_copy_new_frame_image(aom_codec_alg_priv_t *ctx,
   }
 }
 
-static aom_codec_err_t ctrl_set_postproc(aom_codec_alg_priv_t *ctx,
-                                         va_list args) {
-  (void)ctx;
-  (void)args;
-  return AOM_CODEC_INCAPABLE;
-}
-
-static aom_codec_err_t ctrl_set_dbg_options(aom_codec_alg_priv_t *ctx,
-                                            va_list args) {
-  (void)ctx;
-  (void)args;
-  return AOM_CODEC_INCAPABLE;
-}
-
 static aom_codec_err_t ctrl_get_last_ref_updates(aom_codec_alg_priv_t *ctx,
                                                  va_list args) {
   int *const update_info = va_arg(args, int *);
@@ -1357,11 +1330,6 @@ static aom_codec_ctrl_fn_map_t decoder_ctrl_maps[] = {
 
   // Setters
   { AV1_SET_REFERENCE, ctrl_set_reference },
-  { AOM_SET_POSTPROC, ctrl_set_postproc },
-  { AOM_SET_DBG_COLOR_REF_FRAME, ctrl_set_dbg_options },
-  { AOM_SET_DBG_COLOR_MB_MODES, ctrl_set_dbg_options },
-  { AOM_SET_DBG_COLOR_B_MODES, ctrl_set_dbg_options },
-  { AOM_SET_DBG_DISPLAY_MV, ctrl_set_dbg_options },
   { AV1_INVERT_TILE_DECODE_ORDER, ctrl_set_invert_tile_order },
   { AV1_SET_BYTE_ALIGNMENT, ctrl_set_byte_alignment },
   { AV1_SET_SKIP_LOOP_FILTER, ctrl_set_skip_loop_filter },
@@ -1397,11 +1365,10 @@ static aom_codec_ctrl_fn_map_t decoder_ctrl_maps[] = {
   { -1, NULL },
 };
 
-// This data structure and function are exported in aom/aomdx.h
 #ifndef VERSION_STRING
 #define VERSION_STRING
 #endif
-aom_codec_iface_t aom_codec_av1_dx_algo = {
+CODEC_INTERFACE(aom_codec_av1_dx) = {
   "AOMedia Project AV1 Decoder" VERSION_STRING,
   AOM_CODEC_INTERNAL_ABI_VERSION,
   AOM_CODEC_CAP_DECODER |
@@ -1428,5 +1395,3 @@ aom_codec_iface_t aom_codec_av1_dx_algo = {
       NULL   // aom_codec_get_preview_frame_fn_t
   }
 };
-
-aom_codec_iface_t *aom_codec_av1_dx(void) { return &aom_codec_av1_dx_algo; }

@@ -92,51 +92,34 @@
 %define LIBAOM_YASM_WIN64 0
 %endif
 
-; Declare groups of platforms
-%ifidn   __OUTPUT_FORMAT__,elf32
-  %define LIBAOM_ELF 1
-%elifidn   __OUTPUT_FORMAT__,elfx32
-  %define LIBAOM_ELF 1
-%elifidn   __OUTPUT_FORMAT__,elf64
-  %define LIBAOM_ELF 1
-%else
-  %define LIBAOM_ELF 0
-%endif
-
-%ifidn __OUTPUT_FORMAT__,macho32
-  %define LIBAOM_MACHO 1
-%elifidn __OUTPUT_FORMAT__,macho64
-  %define LIBAOM_MACHO 1
-%else
-  %define LIBAOM_MACHO 0
-%endif
-
 ; sym()
 ; Return the proper symbol name for the target ABI.
 ;
 ; Certain ABIs, notably MS COFF and Darwin MACH-O, require that symbols
 ; with C linkage be prefixed with an underscore.
 ;
-%if LIBAOM_ELF || LIBAOM_YASM_WIN64
-  %define sym(x) x
+%ifidn   __OUTPUT_FORMAT__,elf32
+%define sym(x) x
+%elifidn __OUTPUT_FORMAT__,elf64
+%define sym(x) x
+%elifidn __OUTPUT_FORMAT__,elfx32
+%define sym(x) x
+%elif LIBAOM_YASM_WIN64
+%define sym(x) x
 %else
-  ; Mach-O / COFF
-  %define sym(x) _ %+ x
+%define sym(x) _ %+ x
 %endif
 
-; globalsym()
-; Return a global declaration with the proper decoration for the target ABI.
+;  PRIVATE
+;  Macro for the attribute to hide a global symbol for the target ABI.
+;  This is only active if CHROMIUM is defined.
 ;
-; When CHROMIUM is defined, include attributes to hide the symbol from the
-; global namespace.
+;  Chromium doesn't like exported global symbols due to symbol clashing with
+;  plugins among other things.
 ;
-; Chromium doesn't like exported global symbols due to symbol clashing with
-; plugins among other things.
-;
-; Requires Chromium's patched copy of yasm:
-;   http://src.chromium.org/viewvc/chrome?view=rev&revision=73761
-;   http://www.tortall.net/projects/yasm/ticket/236
-; or nasm > 2.14.
+;  Requires Chromium's patched copy of yasm:
+;    http://src.chromium.org/viewvc/chrome?view=rev&revision=73761
+;    http://www.tortall.net/projects/yasm/ticket/236
 ;
 %ifdef CHROMIUM
   %ifdef __NASM_VER__
@@ -146,16 +129,19 @@
     %endif
   %endif
 
-  %if LIBAOM_ELF
-    %define globalsym(x) global sym(x) %+ :function hidden
-  %elif LIBAOM_MACHO
-    %define globalsym(x) global sym(x) %+ :private_extern
+  %ifidn   __OUTPUT_FORMAT__,elf32
+    %define PRIVATE :hidden
+  %elifidn __OUTPUT_FORMAT__,elf64
+    %define PRIVATE :hidden
+  %elifidn __OUTPUT_FORMAT__,elfx32
+    %define PRIVATE :hidden
+  %elif LIBAOM_YASM_WIN64
+    %define PRIVATE
   %else
-    ; COFF / PE32+
-    %define globalsym(x) global sym(x)
+    %define PRIVATE :private_extern
   %endif
 %else
-  %define globalsym(x) global sym(x)
+  %define PRIVATE
 %endif
 
 ; arg()

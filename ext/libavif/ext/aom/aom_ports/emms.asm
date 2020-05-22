@@ -15,14 +15,14 @@
 %include "aom_ports/x86_abi_support.asm"
 
 section .text
-globalsym(aom_reset_mmx_state)
+global sym(aom_reset_mmx_state) PRIVATE
 sym(aom_reset_mmx_state):
     emms
     ret
 
 
 %if LIBAOM_YASM_WIN64
-globalsym(aom_winx64_fldcw)
+global sym(aom_winx64_fldcw) PRIVATE
 sym(aom_winx64_fldcw):
     sub   rsp, 8
     mov   [rsp], rcx ; win x64 specific
@@ -31,7 +31,7 @@ sym(aom_winx64_fldcw):
     ret
 
 
-globalsym(aom_winx64_fstcw)
+global sym(aom_winx64_fstcw) PRIVATE
 sym(aom_winx64_fstcw):
     sub   rsp, 8
     fstcw [rsp]

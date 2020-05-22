@@ -28,15 +28,13 @@
  *     </pre>
  *
  * An application instantiates a specific decoder instance by using
- * aom_codec_dec_init() and a pointer to the algorithm's interface structure:
+ * aom_codec_init() and a pointer to the algorithm's interface structure:
  *     <pre>
  *     my_app.c:
  *       extern aom_codec_iface_t my_codec;
  *       {
  *           aom_codec_ctx_t algo;
- *           int threads = 4;
- *           aom_codec_dec_cfg_t cfg = { threads, 0, 0, 1 };
- *           res = aom_codec_dec_init(&algo, &my_codec, &cfg, 0);
+ *           res = aom_codec_init(&algo, &my_codec);
  *       }
  *     </pre>
  *
@@ -68,7 +66,7 @@ typedef struct aom_codec_alg_priv aom_codec_alg_priv_t;
 /*!\brief init function pointer prototype
  *
  * Performs algorithm-specific initialization of the decoder context. This
- * function is called by aom_codec_dec_init() and aom_codec_enc_init(), so
+ * function is called by the generic aom_codec_init() wrapper function, so
  * plugins implementing this interface may trust the input parameters to be
  * properly initialized.
  *
@@ -138,7 +136,7 @@ typedef aom_codec_err_t (*aom_codec_get_si_fn_t)(aom_codec_alg_priv_t *ctx,
  * function, so plugins implementing this interface may trust the input
  * parameters to be properly initialized. However,  this interface does not
  * provide type safety for the exchanged data or assign meanings to the
- * control codes. Those details should be specified in the algorithm's
+ * control IDs. Those details should be specified in the algorithm's
  * header file. In particular, the ctrl_id parameter is guaranteed to exist
  * in the algorithm's control mapping table, and the data parameter may be NULL.
  *
@@ -307,15 +305,20 @@ struct aom_codec_priv {
   } enc;
 };
 
-#undef AOM_CTRL_USE_TYPE
-#define AOM_CTRL_USE_TYPE(id, typ) \
-  static AOM_INLINE typ id##__value(va_list args) { return va_arg(args, typ); }
+#define CAST(id, arg) va_arg((arg), aom_codec_control_type_##id)
 
-#undef AOM_CTRL_USE_TYPE_DEPRECATED
-#define AOM_CTRL_USE_TYPE_DEPRECATED(id, typ) \
-  static AOM_INLINE typ id##__value(va_list args) { return va_arg(args, typ); }
-
-#define CAST(id, arg) id##__value(arg)
+/* CODEC_INTERFACE convenience macro
+ *
+ * By convention, each codec interface is a struct with extern linkage, where
+ * the symbol is suffixed with _algo. A getter function is also defined to
+ * return a pointer to the struct, since in some cases it's easier to work
+ * with text symbols than data symbols (see issue #169). This function has
+ * the same name as the struct, less the _algo suffix. The CODEC_INTERFACE
+ * macro is provided to define this getter function automatically.
+ */
+#define CODEC_INTERFACE(id)                          \
+  aom_codec_iface_t *id(void) { return &id##_algo; } \
+  aom_codec_iface_t id##_algo
 
 /* Internal Utility Functions
  *

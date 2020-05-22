@@ -188,7 +188,7 @@ typedef struct RD_STATS {
   // rate/dist.
   int64_t rdcost;
   int64_t sse;
-  int skip_txfm;  // sse should equal to dist when skip_txfm == 1
+  int skip;  // sse should equal to dist when skip == 1
   int zero_rate;
 #if CONFIG_RD_DEBUG
   int txb_coeff_cost[MAX_MB_PLANE];
@@ -218,7 +218,6 @@ typedef struct MB_MODE_INFO {
   INTERINTER_COMPOUND_DATA interinter_comp;
   WarpedMotionParams wm_params;
   int_mv mv[2];
-  // q index for the current coding block.
   int current_qindex;
   // Only for INTER blocks
   int_interpfilters interp_filters;
@@ -243,7 +242,7 @@ typedef struct MB_MODE_INFO {
   PARTITION_TYPE partition;
   MV_REFERENCE_FRAME ref_frame[2];
   FILTER_INTRA_MODE_INFO filter_intra_mode_info;
-  int8_t skip_txfm;
+  int8_t skip;
   uint8_t inter_tx_size[INTER_TX_SIZE_BUF_LEN];
   TX_SIZE tx_size;
   int8_t delta_lf_from_base;
@@ -391,6 +390,9 @@ typedef struct {
 } CB_BUFFER;
 
 typedef struct macroblockd_plane {
+  tran_low_t *dqcoeff;
+  tran_low_t *dqcoeff_block;
+  eob_info *eob_data;
   PLANE_TYPE plane_type;
   int subsampling_x;
   int subsampling_y;
@@ -403,9 +405,6 @@ typedef struct macroblockd_plane {
   // dequantization process.  They have the same coefficient
   // shift/scale as TX.
   int16_t seg_dequant_QTX[MAX_SEGMENTS][2];
-  // Pointer to color index map of:
-  // - Current coding block, on encoder side.
-  // - Current superblock, on decoder side.
   uint8_t *color_index_map;
 
   // block size in pixels
@@ -502,10 +501,8 @@ typedef struct macroblockd {
   // Similar logic applies for chroma blocks that cover 2 or 3 luma blocks.
   bool is_chroma_ref;
 
-  // Info specific to each plane.
   struct macroblockd_plane plane[MAX_MB_PLANE];
 
-  // Tile related info.
   TileInfo tile;
 
   // Appropriate offset inside cm->mi_params.mi_grid_base based on current
@@ -556,10 +553,6 @@ typedef struct macroblockd {
   // These are pointers into 'cm->ref_scale_factors'.
   const struct scale_factors *block_ref_scale_factors[2];
 
-  // On encoder side: points to cpi->source, which is the buffer containing
-  // the current *source* frame (maybe filtered).
-  // On decoder side: points to cm->cur_frame->buf, which is the buffer into
-  // which current frame is being *decoded*.
   const YV12_BUFFER_CONFIG *cur_buf;
 
   // Entropy contexts for the above blocks.
@@ -576,7 +569,7 @@ typedef struct macroblockd {
   // Partition contexts for the above blocks.
   // above_partition_context[i] corresponds to above partition context for ith
   // mi column of this *frame*, wrt current 'mi_row'.
-  // This is a pointer into 'cm->above_contexts.partition'.
+  // These are pointers into 'cm->above_contexts.partition'.
   PARTITION_CONTEXT *above_partition_context;
   // Partition contexts for the left blocks.
   // left_partition_context[i] corresponds to left partition context for ith
@@ -585,19 +578,13 @@ typedef struct macroblockd {
   PARTITION_CONTEXT left_partition_context[MAX_MIB_SIZE];
 
   // Transform contexts for the above blocks.
-  // above_txfm_context[i] corresponds to above transform context for ith mi col
-  // from the current position (mi row and mi column) for this *frame*.
-  // This is a pointer into 'cm->above_contexts.txfm'.
+  // TODO(urvang): Indexed two different ways from cm->above_contexts.txfm in
+  // code currently. Need to make it consistent / document why.
   TXFM_CONTEXT *above_txfm_context;
   // Transform contexts for the left blocks.
-  // left_txfm_context[i] corresponds to left transform context for ith mi row
-  // from the current position (mi_row and mi_col) for this *superblock*.
-  // This is a pointer into 'left_txfm_context_buffer'.
   TXFM_CONTEXT *left_txfm_context;
-  // left_txfm_context_buffer[i] is the left transform context for ith mi_row
-  // in this *superblock*.
-  // Behaves like an internal actual buffer which 'left_txt_context' points to,
-  // and never accessed directly except to fill in initial default values.
+  // TODO(urvang): 'left_txfm_context' points to 'left_txfm_context_buffer'.
+  // Can we remove this indirection?
   TXFM_CONTEXT left_txfm_context_buffer[MAX_MIB_SIZE];
 
   // Default values for the two restoration filters for each plane.
@@ -611,56 +598,31 @@ typedef struct macroblockd {
   uint8_t width;
   uint8_t height;
 
-  // Contains the motion vector candidates found during motion vector prediction
-  // process. ref_mv_stack[i] contains the candidates for ith type of
-  // reference frame (single/compound). The actual number of candidates found in
-  // ref_mv_stack[i] is stored in either dcb->ref_mv_count[i] (decoder side)
-  // or mbmi_ext->ref_mv_count[i] (encoder side).
+  uint8_t ref_mv_count[MODE_CTX_REF_FRAMES];
   CANDIDATE_MV ref_mv_stack[MODE_CTX_REF_FRAMES][MAX_REF_MV_STACK_SIZE];
-  // weight[i][j] is the weight for ref_mv_stack[i][j] and used to compute the
-  // DRL (dynamic reference list) mode contexts.
   uint16_t weight[MODE_CTX_REF_FRAMES][MAX_REF_MV_STACK_SIZE];
-
-  // True if this is the last vertical rectangular block in a VERTICAL or
-  // VERTICAL_4 partition.
-  bool is_last_vertical_rect;
-  // True if this is the 1st horizontal rectangular block in a HORIZONTAL or
-  // HORIZONTAL_4 partition.
-  bool is_first_horizontal_rect;
+  uint8_t is_sec_rect;
 
   // Counts of each reference frame in the above and left neighboring blocks.
   // NOTE: Take into account both single and comp references.
   uint8_t neighbors_ref_counts[REF_FRAMES];
 
-  // Current CDFs of all the symbols for the current tile.
   FRAME_CONTEXT *tile_ctx;
-
   // Bit depth: copied from cm->seq_params.bit_depth for convenience.
   int bd;
 
-  // Quantizer index for each segment (base qindex + delta for each segment).
   int qindex[MAX_SEGMENTS];
-  // lossless[s] is true if segment 's' is coded losslessly.
   int lossless[MAX_SEGMENTS];
-  // Q index for the coding blocks in this superblock will be stored in
-  // mbmi->current_qindex. Now, when cm->delta_q_info.delta_q_present_flag is
-  // true, mbmi->current_qindex is computed by taking 'current_base_qindex' as
-  // the base, and adding any transmitted delta qindex on top of it.
-  // Precisely, this is the latest qindex used by the first coding block of a
-  // non-skip superblock in the current tile; OR
-  // same as cm->quant_params.base_qindex (if not explicitly set yet).
-  // Note: This is 'CurrentQIndex' in the AV1 spec.
-  int current_base_qindex;
-
+  // TODO(urvang): Move to decoder.
+  int corrupted;
   // Same as cm->features.cur_frame_force_integer_mv.
   int cur_frame_force_integer_mv;
-
   // Pointer to cm->error.
   struct aom_internal_error_info *error_info;
-
   // Same as cm->global_motion.
   const WarpedMotionParams *global_motion;
-
+  int delta_qindex;
+  int current_qindex;
   // Since actual frame level loop filtering level value is not available
   // at the beginning of the tile (only available during actual filtering)
   // at encoder side.we record the delta_lf (against the frame level loop
@@ -697,33 +659,17 @@ typedef struct macroblockd {
   // cm->mi_params.mi_grid_base).
   bool cdef_transmitted[4];
 
-  // Mask for this block used for compound prediction.
   DECLARE_ALIGNED(16, uint8_t, seg_mask[2 * MAX_SB_SQUARE]);
-
-  // CFL (chroma from luma) related parameters.
+  uint8_t *mc_buf[2];
   CFL_CTX cfl;
 
-  // Offset to plane[p].color_index_map.
-  // Currently:
-  // - On encoder side, this is always 0 as 'color_index_map' is allocated per
-  // *coding block* there.
-  // - On decoder side, this may be non-zero, as 'color_index_map' is a (static)
-  // memory pointing to the base of a *superblock* there, and we need an offset
-  // to it to get the color index map for current coding block.
+  DIST_WTD_COMP_PARAMS jcp_param;
+
+  uint16_t cb_offset[MAX_MB_PLANE];
+  uint16_t txb_offset[MAX_MB_PLANE];
   uint16_t color_index_map_offset[2];
 
-  // Temporary buffer used for convolution in case of compound reference only
-  // for (weighted or uniform) averaging operation.
-  // There are pointers to actual buffers allocated elsewhere: e.g. In dec,
-  // 'pbi->td.tmp_conv_dst' or 'pbi->thread_data[t].td->xd.tmp_conv_dst' and in
-  // enc, 'x->tmp_conv_dst' or 'cpi->tile_thr_data[t].td->mb.tmp_conv_dst'.
   CONV_BUF_TYPE *tmp_conv_dst;
-  // Temporary buffers used to build OBMC prediction by above (index 0) and left
-  // (index 1) predictors respectively.
-  // tmp_obmc_bufs[i][p * MAX_SB_SQUARE] is the buffer used for plane 'p'.
-  // There are pointers to actual buffers allocated elsewhere: e.g. In dec,
-  // 'pbi->td.tmp_obmc_bufs' or 'pbi->thread_data[t].td->xd.tmp_conv_dst' and in
-  // enc, 'x->tmp_obmc_bufs' or 'cpi->tile_thr_data[t].td->mb.tmp_obmc_bufs'.
   uint8_t *tmp_obmc_bufs[2];
 } MACROBLOCKD;
 

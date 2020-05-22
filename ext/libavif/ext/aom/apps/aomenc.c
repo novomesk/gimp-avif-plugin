@@ -814,11 +814,6 @@ static const arg_def_t fixed_qp_offsets =
             "specified (default), offsets are adaptively chosen by the "
             "encoder.");
 
-static const arg_def_t vbr_corpus_complexity_lap = ARG_DEF(
-    NULL, "vbr-corpus-complexity-lap", 1,
-    "Set average corpus complexity per mb for single pass VBR using lap. "
-    "(0..10000), default is 0");
-
 static const arg_def_t *av1_args[] = { &cpu_used_av1,
                                        &auto_altref,
                                        &sharpness,
@@ -914,7 +909,6 @@ static const arg_def_t *av1_args[] = { &cpu_used_av1,
                                        &target_seq_level_idx,
                                        &set_tier_mask,
                                        &set_min_cr,
-                                       &vbr_corpus_complexity_lap,
                                        &bitdeptharg,
                                        &inbitdeptharg,
                                        &input_chroma_subsampling_x,
@@ -1021,7 +1015,6 @@ static const int av1_arg_ctrl_map[] = { AOME_SET_CPUUSED,
                                         AV1E_SET_TARGET_SEQ_LEVEL_IDX,
                                         AV1E_SET_TIER_MASK,
                                         AV1E_SET_MIN_CR,
-                                        AV1E_SET_VBR_CORPUS_COMPLEXITY_LAP,
 #if CONFIG_TUNE_VMAF
                                         AV1E_SET_VMAF_MODEL_PATH,
 #endif
@@ -1061,10 +1054,10 @@ static void show_help(FILE *fout, int shorthelp) {
 
   const int num_encoder = get_aom_encoder_count();
   for (int i = 0; i < num_encoder; ++i) {
-    aom_codec_iface_t *encoder = get_aom_encoder_by_index(i);
+    const AvxInterface *const encoder = get_aom_encoder_by_index(i);
     const char *defstr = (i == (num_encoder - 1)) ? "(default)" : "";
-    fprintf(fout, "    %-6s - %s %s\n", get_short_name_by_aom_encoder(encoder),
-            aom_codec_iface_name(encoder), defstr);
+    fprintf(fout, "    %-6s - %s %s\n", encoder->name,
+            aom_codec_iface_name(encoder->codec_interface()), defstr);
   }
   fprintf(fout, "\n        ");
   fprintf(fout, "Use --codec to switch to a non-default encoder.\n\n");
@@ -1181,7 +1174,7 @@ static void parse_global_config(struct AvxEncoderConfig *global, char ***argv) {
       show_help(stdout, 0);
       exit(EXIT_SUCCESS);
     } else if (arg_match(&arg, &codecarg, argi)) {
-      global->codec = get_aom_encoder_by_short_name(arg.val);
+      global->codec = get_aom_encoder_by_name(arg.val);
       if (!global->codec)
         die("Error: Unrecognized argument (%s) to --codec\n", arg.val);
     } else if (arg_match(&arg, &passes, argi)) {
@@ -1255,12 +1248,11 @@ static void parse_global_config(struct AvxEncoderConfig *global, char ***argv) {
 #if CONFIG_AV1_ENCODER
     // Make default AV1 passes = 2 until there is a better quality 1-pass
     // encoder
-    if (global->codec != NULL)
-      global->passes =
-          (strcmp(get_short_name_by_aom_encoder(global->codec), "av1") == 0 &&
-           global->usage != AOM_USAGE_REALTIME)
-              ? 2
-              : 1;
+    if (global->codec != NULL && global->codec->name != NULL)
+      global->passes = (strcmp(global->codec->name, "av1") == 0 &&
+                        global->usage != AOM_USAGE_REALTIME)
+                           ? 2
+                           : 1;
 #else
     global->passes = 1;
 #endif
@@ -1341,8 +1333,8 @@ static struct stream_state *new_stream(struct AvxEncoderConfig *global,
     aom_codec_err_t res;
 
     /* Populate encoder configuration */
-    res = aom_codec_enc_config_default(global->codec, &stream->config.cfg,
-                                       global->usage);
+    res = aom_codec_enc_config_default(global->codec->codec_interface(),
+                                       &stream->config.cfg, global->usage);
     if (res) fatal("Failed to get config: %s\n", aom_codec_err_to_string(res));
 
     /* Change the default timebase to a high enough value so that the
@@ -1430,7 +1422,7 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
   // Handle codec specific options
   if (0) {
 #if CONFIG_AV1_ENCODER
-  } else if (strcmp(get_short_name_by_aom_encoder(global->codec), "av1") == 0) {
+  } else if (strcmp(global->codec->name, "av1") == 0) {
     // TODO(jingning): Reuse AV1 specific encoder configuration parameters.
     // Consider to expand this set for AV1 encoder control.
     ctrl_args = av1_args;
@@ -1520,9 +1512,7 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
       }
     } else if (arg_match(&arg, &large_scale_tile, argi)) {
       config->cfg.large_scale_tile = arg_parse_uint(&arg);
-      if (config->cfg.large_scale_tile) {
-        global->codec = get_aom_encoder_by_short_name("av1");
-      }
+      if (config->cfg.large_scale_tile) global->codec = get_aom_lst_encoder();
     } else if (arg_match(&arg, &monochrome, argi)) {
       config->cfg.monochrome = 1;
     } else if (arg_match(&arg, &full_still_picture_hdr, argi)) {
@@ -1724,7 +1714,8 @@ static void show_stream_config(struct stream_state *stream,
   fprintf(stderr, "    %-28s = %d\n", #field, stream->config.cfg.field)
 
   if (stream->index == 0) {
-    fprintf(stderr, "Codec: %s\n", aom_codec_iface_name(global->codec));
+    fprintf(stderr, "Codec: %s\n",
+            aom_codec_iface_name(global->codec->codec_interface()));
     fprintf(stderr, "Source file: %s File Type: %s Format: %s\n",
             input->filename, file_type_to_string(input->file_type),
             image_format_to_string(input->fmt));
@@ -1833,8 +1824,7 @@ static void open_output_file(struct stream_state *stream,
   if (stream->config.write_webm) {
     stream->webm_ctx.stream = stream->file;
     if (write_webm_file_header(&stream->webm_ctx, &stream->encoder, cfg,
-                               stream->config.stereo_fmt,
-                               get_fourcc_by_aom_encoder(global->codec),
+                               stream->config.stereo_fmt, global->codec->fourcc,
                                pixel_aspect_ratio) != 0) {
       fatal("WebM writer initialization failed.");
     }
@@ -1844,8 +1834,7 @@ static void open_output_file(struct stream_state *stream,
 #endif
 
   if (!stream->config.write_webm && stream->config.write_ivf) {
-    ivf_write_file_header(stream->file, cfg,
-                          get_fourcc_by_aom_encoder(global->codec), 0);
+    ivf_write_file_header(stream->file, cfg, global->codec->fourcc, 0);
   }
 }
 
@@ -1903,18 +1892,14 @@ static void initialize_encoder(struct stream_state *stream,
   flags |= stream->config.use_16bit_internal ? AOM_CODEC_USE_HIGHBITDEPTH : 0;
 
   /* Construct Encoder Context */
-  aom_codec_enc_init(&stream->encoder, global->codec, &stream->config.cfg,
-                     flags);
+  aom_codec_enc_init(&stream->encoder, global->codec->codec_interface(),
+                     &stream->config.cfg, flags);
   ctx_exit_on_error(&stream->encoder, "Failed to initialize encoder");
 
-  /* Note that we bypass the aom_codec_control wrapper macro because
-   * we're being clever to store the control IDs in an array. Real
-   * applications will want to make use of the enumerations directly
-   */
   for (i = 0; i < stream->config.arg_ctrl_cnt; i++) {
     int ctrl = stream->config.arg_ctrls[i][0];
     int value = stream->config.arg_ctrls[i][1];
-    if (aom_codec_control_(&stream->encoder, ctrl, value))
+    if (aom_codec_control(&stream->encoder, ctrl, value))
       fprintf(stderr, "Error: Tried to set control %d = %d\n", ctrl, value);
 
     ctx_exit_on_error(&stream->encoder, "Failed to control codec");
@@ -1922,36 +1907,37 @@ static void initialize_encoder(struct stream_state *stream,
 
 #if CONFIG_TUNE_VMAF
   if (stream->config.vmaf_model_path) {
-    aom_codec_control_(&stream->encoder, AV1E_SET_VMAF_MODEL_PATH,
-                       stream->config.vmaf_model_path);
+    AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder, AV1E_SET_VMAF_MODEL_PATH,
+                                  stream->config.vmaf_model_path);
   }
 #endif
 
   if (stream->config.film_grain_filename) {
-    aom_codec_control_(&stream->encoder, AV1E_SET_FILM_GRAIN_TABLE,
-                       stream->config.film_grain_filename);
+    AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder, AV1E_SET_FILM_GRAIN_TABLE,
+                                  stream->config.film_grain_filename);
   }
 
 #if CONFIG_AV1_DECODER
   if (global->test_decode != TEST_DECODE_OFF) {
-    aom_codec_iface_t *decoder = get_aom_decoder_by_short_name(
-        get_short_name_by_aom_encoder(global->codec));
+    const AvxInterface *decoder = get_aom_decoder_by_name(global->codec->name);
     aom_codec_dec_cfg_t cfg = { 0, 0, 0, !FORCE_HIGHBITDEPTH_DECODING };
-    aom_codec_dec_init(&stream->decoder, decoder, &cfg, 0);
+    aom_codec_dec_init(&stream->decoder, decoder->codec_interface(), &cfg, 0);
 
-    if (strcmp(get_short_name_by_aom_encoder(global->codec), "av1") == 0) {
-      aom_codec_control(&stream->decoder, AV1_SET_TILE_MODE,
-                        stream->config.cfg.large_scale_tile);
+    if (strcmp(global->codec->name, "av1") == 0) {
+      AOM_CODEC_CONTROL_TYPECHECKED(&stream->decoder, AV1_SET_TILE_MODE,
+                                    stream->config.cfg.large_scale_tile);
       ctx_exit_on_error(&stream->decoder, "Failed to set decode_tile_mode");
 
-      aom_codec_control(&stream->decoder, AV1D_SET_IS_ANNEXB,
-                        stream->config.cfg.save_as_annexb);
+      AOM_CODEC_CONTROL_TYPECHECKED(&stream->decoder, AV1D_SET_IS_ANNEXB,
+                                    stream->config.cfg.save_as_annexb);
       ctx_exit_on_error(&stream->decoder, "Failed to set is_annexb");
 
-      aom_codec_control(&stream->decoder, AV1_SET_DECODE_TILE_ROW, -1);
+      AOM_CODEC_CONTROL_TYPECHECKED(&stream->decoder, AV1_SET_DECODE_TILE_ROW,
+                                    -1);
       ctx_exit_on_error(&stream->decoder, "Failed to set decode_tile_row");
 
-      aom_codec_control(&stream->decoder, AV1_SET_DECODE_TILE_COL, -1);
+      AOM_CODEC_CONTROL_TYPECHECKED(&stream->decoder, AV1_SET_DECODE_TILE_COL,
+                                    -1);
       ctx_exit_on_error(&stream->decoder, "Failed to set decode_tile_col");
     }
   }
@@ -2050,7 +2036,8 @@ static void update_quantizer_histogram(struct stream_state *stream) {
   if (stream->config.cfg.g_pass != AOM_RC_FIRST_PASS) {
     int q;
 
-    aom_codec_control(&stream->encoder, AOME_GET_LAST_QUANTIZER_64, &q);
+    AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder, AOME_GET_LAST_QUANTIZER_64,
+                                  &q);
     ctx_exit_on_error(&stream->encoder, "Failed to read quantizer");
     stream->counts[q]++;
   }
@@ -2177,8 +2164,10 @@ static void test_decode(struct stream_state *stream,
   if (stream->mismatch_seen) return;
 
   /* Get the internal reference frame */
-  aom_codec_control(&stream->encoder, AV1_GET_NEW_FRAME_IMAGE, &enc_img);
-  aom_codec_control(&stream->decoder, AV1_GET_NEW_FRAME_IMAGE, &dec_img);
+  AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder, AV1_GET_NEW_FRAME_IMAGE,
+                                &enc_img);
+  AOM_CODEC_CONTROL_TYPECHECKED(&stream->decoder, AV1_GET_NEW_FRAME_IMAGE,
+                                &dec_img);
 
   if ((enc_img.fmt & AOM_IMG_FMT_HIGHBITDEPTH) !=
       (dec_img.fmt & AOM_IMG_FMT_HIGHBITDEPTH)) {
@@ -2322,8 +2311,7 @@ int main(int argc, const char **argv_) {
   }
 
   /* Decide if other chroma subsamplings than 4:2:0 are supported */
-  if (get_fourcc_by_aom_encoder(global.codec) == AV1_FOURCC)
-    input.only_i420 = 0;
+  if (global.codec->fourcc == AV1_FOURCC) input.only_i420 = 0;
 
   for (pass = global.pass ? global.pass - 1 : 0; pass < global.passes; pass++) {
     int frames_in = 0, seen_frames = 0;
@@ -2416,16 +2404,20 @@ int main(int argc, const char **argv_) {
                        input.file_type == FILE_TYPE_Y4M) {
               // Note that here the input file values for chroma subsampling
               // are used instead of those from the command line.
-              aom_codec_control(&stream->encoder, AV1E_SET_CHROMA_SUBSAMPLING_X,
-                                input.y4m.dst_c_dec_h >> 1);
-              aom_codec_control(&stream->encoder, AV1E_SET_CHROMA_SUBSAMPLING_Y,
-                                input.y4m.dst_c_dec_v >> 1);
+              AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder,
+                                            AV1E_SET_CHROMA_SUBSAMPLING_X,
+                                            input.y4m.dst_c_dec_h >> 1);
+              AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder,
+                                            AV1E_SET_CHROMA_SUBSAMPLING_Y,
+                                            input.y4m.dst_c_dec_v >> 1);
             } else if (input.bit_depth == 12 &&
                        input.file_type == FILE_TYPE_RAW) {
-              aom_codec_control(&stream->encoder, AV1E_SET_CHROMA_SUBSAMPLING_X,
-                                stream->chroma_subsampling_x);
-              aom_codec_control(&stream->encoder, AV1E_SET_CHROMA_SUBSAMPLING_Y,
-                                stream->chroma_subsampling_y);
+              AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder,
+                                            AV1E_SET_CHROMA_SUBSAMPLING_X,
+                                            stream->chroma_subsampling_x);
+              AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder,
+                                            AV1E_SET_CHROMA_SUBSAMPLING_Y,
+                                            stream->chroma_subsampling_y);
             }
             break;
           default: break;
@@ -2532,7 +2524,8 @@ int main(int argc, const char **argv_) {
       open_output_file(stream, &global, &input.pixel_aspect_ratio);
     }
 
-    if (strcmp(get_short_name_by_aom_encoder(global.codec), "av1") == 0) {
+    if (strcmp(global.codec->name, "av1") == 0 ||
+        strcmp(global.codec->name, "av1") == 0) {
       // Check to see if at least one stream uses 16 bit internal.
       // Currently assume that the bit_depths for all streams using
       // highbitdepth are the same.
@@ -2682,7 +2675,7 @@ int main(int argc, const char **argv_) {
     }
 
     if (global.show_psnr) {
-      if (get_fourcc_by_aom_encoder(global.codec) == AV1_FOURCC) {
+      if (global.codec->fourcc == AV1_FOURCC) {
         FOREACH_STREAM(stream, streams) {
           int64_t bps = 0;
           if (stream->psnr_count && seen_frames && global.framerate.den) {
@@ -2709,7 +2702,7 @@ int main(int argc, const char **argv_) {
       FOREACH_STREAM(stream, streams) { res |= stream->mismatch_seen; }
     }
     FOREACH_STREAM(stream, streams) {
-      close_output_file(stream, get_fourcc_by_aom_encoder(global.codec));
+      close_output_file(stream, global.codec->fourcc);
     }
 
     FOREACH_STREAM(stream, streams) {

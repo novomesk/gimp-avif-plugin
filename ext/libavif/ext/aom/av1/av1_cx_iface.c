@@ -138,7 +138,6 @@ struct av1_extracfg {
   int use_inter_dct_only;
   int use_intra_default_tx_only;
   int quant_b_adapt;
-  unsigned int vbr_corpus_complexity_lap;
   AV1_LEVEL target_seq_level_idx[MAX_NUM_OPERATING_POINTS];
   // Bit mask to specify which tier each of the 32 possible operating points
   // conforms to.
@@ -259,7 +258,6 @@ static struct av1_extracfg default_extra_cfg = {
   0,  // use_inter_dct_only
   0,  // use_intra_default_tx_only
   0,  // quant_b_adapt
-  0,  // vbr_corpus_complexity_lap
   {
       SEQ_LEVEL_MAX, SEQ_LEVEL_MAX, SEQ_LEVEL_MAX, SEQ_LEVEL_MAX, SEQ_LEVEL_MAX,
       SEQ_LEVEL_MAX, SEQ_LEVEL_MAX, SEQ_LEVEL_MAX, SEQ_LEVEL_MAX, SEQ_LEVEL_MAX,
@@ -295,7 +293,6 @@ struct aom_codec_alg_priv {
   size_t pending_frame_sizes[8];
   aom_image_t preview_img;
   aom_enc_frame_flags_t next_frame_flags;
-  aom_postproc_cfg_t preview_ppcfg;
   aom_codec_pkt_list_decl(256) pkt_list;
   unsigned int fixed_kf_cntr;
   // BufferPool that holds all reference frames.
@@ -311,7 +308,7 @@ struct aom_codec_alg_priv {
 };
 
 static INLINE int gcd(int64_t a, int b) {
-  int remainder;
+  int remainder;  // remainder
   while (b > 0) {
     remainder = (int)(a % b);
     a = b;
@@ -409,7 +406,7 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
               SCALE_NUMERATOR << 1);
   RANGE_CHECK(cfg, rc_resize_kf_denominator, SCALE_NUMERATOR,
               SCALE_NUMERATOR << 1);
-  RANGE_CHECK_HI(cfg, rc_superres_mode, AOM_SUPERRES_AUTO);
+  RANGE_CHECK_HI(cfg, rc_superres_mode, SUPERRES_MODES - 1);
   RANGE_CHECK(cfg, rc_superres_denominator, SCALE_NUMERATOR,
               SCALE_NUMERATOR << 1);
   RANGE_CHECK(cfg, rc_superres_kf_denominator, SCALE_NUMERATOR,
@@ -512,16 +509,6 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
   RANGE_CHECK(extra_cfg, matrix_coefficients, AOM_CICP_MC_IDENTITY,
               AOM_CICP_MC_ICTCP);
   RANGE_CHECK(extra_cfg, color_range, 0, 1);
-
-  /* Average corpus complexity is supported only in the case of single pass
-   * VBR*/
-  if (cfg->g_pass == AOM_RC_ONE_PASS && cfg->rc_end_usage == AOM_VBR)
-    RANGE_CHECK_HI(extra_cfg, vbr_corpus_complexity_lap,
-                   MAX_VBR_CORPUS_COMPLEXITY);
-  else if (extra_cfg->vbr_corpus_complexity_lap != 0)
-    ERROR(
-        "VBR corpus complexity is supported only in the case of single pass "
-        "VBR mode.");
 
 #if !CONFIG_TUNE_VMAF
   if (extra_cfg->tuning == AOM_TUNE_VMAF_WITH_PREPROCESSING ||
@@ -634,7 +621,7 @@ static int get_image_bps(const aom_image_t *img) {
 
 // Set appropriate options to disable frame super-resolution.
 static void disable_superres(AV1EncoderConfig *const oxcf) {
-  oxcf->superres_mode = AOM_SUPERRES_NONE;
+  oxcf->superres_mode = SUPERRES_NONE;
   oxcf->superres_scale_denominator = SCALE_NUMERATOR;
   oxcf->superres_kf_scale_denominator = SCALE_NUMERATOR;
   oxcf->superres_qthresh = 255;
@@ -829,19 +816,19 @@ static aom_codec_err_t set_encoder_config(AV1EncoderConfig *oxcf,
   if (extra_cfg->lossless || cfg->large_scale_tile) {
     disable_superres(oxcf);
   } else {
-    oxcf->superres_mode = cfg->rc_superres_mode;
+    oxcf->superres_mode = (SUPERRES_MODE)cfg->rc_superres_mode;
     oxcf->superres_scale_denominator = (uint8_t)cfg->rc_superres_denominator;
     oxcf->superres_kf_scale_denominator =
         (uint8_t)cfg->rc_superres_kf_denominator;
     oxcf->superres_qthresh = av1_quantizer_to_qindex(cfg->rc_superres_qthresh);
     oxcf->superres_kf_qthresh =
         av1_quantizer_to_qindex(cfg->rc_superres_kf_qthresh);
-    if (oxcf->superres_mode == AOM_SUPERRES_FIXED &&
+    if (oxcf->superres_mode == SUPERRES_FIXED &&
         oxcf->superres_scale_denominator == SCALE_NUMERATOR &&
         oxcf->superres_kf_scale_denominator == SCALE_NUMERATOR) {
       disable_superres(oxcf);
     }
-    if (oxcf->superres_mode == AOM_SUPERRES_QTHRESH &&
+    if (oxcf->superres_mode == SUPERRES_QTHRESH &&
         oxcf->superres_qthresh == 255 && oxcf->superres_kf_qthresh == 255) {
       disable_superres(oxcf);
     }
@@ -963,7 +950,7 @@ static aom_codec_err_t set_encoder_config(AV1EncoderConfig *oxcf,
   oxcf->enable_cfl_intra = extra_cfg->enable_cfl_intra;
 
   oxcf->enable_superres =
-      (oxcf->superres_mode != AOM_SUPERRES_NONE) && extra_cfg->enable_superres;
+      (oxcf->superres_mode != SUPERRES_NONE) && extra_cfg->enable_superres;
   if (!oxcf->enable_superres) {
     disable_superres(oxcf);
   }
@@ -1022,8 +1009,6 @@ static aom_codec_err_t set_encoder_config(AV1EncoderConfig *oxcf,
 
   oxcf->use_fixed_qp_offsets =
       cfg->use_fixed_qp_offsets && (oxcf->rc_mode == AOM_Q);
-  oxcf->vbr_corpus_complexity_lap = extra_cfg->vbr_corpus_complexity_lap;
-
   for (int i = 0; i < FIXED_QP_OFFSET_COUNT; ++i) {
     if (oxcf->use_fixed_qp_offsets) {
       if (cfg->fixed_qp_offsets[i] >= 0) {  // user-provided qp offset
@@ -1044,7 +1029,6 @@ static aom_codec_err_t set_encoder_config(AV1EncoderConfig *oxcf,
 
 static aom_codec_err_t encoder_set_config(aom_codec_alg_priv_t *ctx,
                                           const aom_codec_enc_cfg_t *cfg) {
-  InitialDimensions *const initial_dimensions = &ctx->cpi->initial_dimensions;
   aom_codec_err_t res;
   int force_key = 0;
 
@@ -1052,10 +1036,8 @@ static aom_codec_err_t encoder_set_config(aom_codec_alg_priv_t *ctx,
     if (cfg->g_lag_in_frames > 1 || cfg->g_pass != AOM_RC_ONE_PASS)
       ERROR("Cannot change width or height after initialization");
     if (!valid_ref_frame_size(ctx->cfg.g_w, ctx->cfg.g_h, cfg->g_w, cfg->g_h) ||
-        (initial_dimensions->width &&
-         (int)cfg->g_w > initial_dimensions->width) ||
-        (initial_dimensions->height &&
-         (int)cfg->g_h > initial_dimensions->height))
+        (ctx->cpi->initial_width && (int)cfg->g_w > ctx->cpi->initial_width) ||
+        (ctx->cpi->initial_height && (int)cfg->g_h > ctx->cpi->initial_height))
       force_key = 1;
   }
 
@@ -1666,13 +1648,6 @@ static aom_codec_err_t ctrl_set_quant_b_adapt(aom_codec_alg_priv_t *ctx,
   return update_extra_cfg(ctx, &extra_cfg);
 }
 
-static aom_codec_err_t ctrl_set_vbr_corpus_complexity_lap(
-    aom_codec_alg_priv_t *ctx, va_list args) {
-  struct av1_extracfg extra_cfg = ctx->extra_cfg;
-  extra_cfg.vbr_corpus_complexity_lap =
-      CAST(AV1E_SET_VBR_CORPUS_COMPLEXITY_LAP, args);
-  return update_extra_cfg(ctx, &extra_cfg);
-}
 static aom_codec_err_t ctrl_set_coeff_cost_upd_freq(aom_codec_alg_priv_t *ctx,
                                                     va_list args) {
   struct av1_extracfg extra_cfg = ctx->extra_cfg;
@@ -1925,8 +1900,8 @@ static aom_codec_err_t encoder_init(aom_codec_ctx_t *ctx) {
       reduce_ratio(&priv->timestamp_ratio);
 
       set_encoder_config(&priv->oxcf, &priv->cfg, &priv->extra_cfg);
-      if ((priv->oxcf.rc_mode == AOM_Q || priv->oxcf.rc_mode == AOM_VBR) &&
-          priv->oxcf.pass == 0 && priv->oxcf.mode == GOOD) {
+      if (priv->oxcf.rc_mode == AOM_Q && priv->oxcf.pass == 0 &&
+          priv->oxcf.mode == GOOD) {
         // Enable look ahead
         *num_lap_buffers = priv->cfg.g_lag_in_frames;
         *num_lap_buffers =
@@ -2412,13 +2387,6 @@ static aom_codec_err_t ctrl_copy_new_frame_image(aom_codec_alg_priv_t *ctx,
   }
 }
 
-static aom_codec_err_t ctrl_set_previewpp(aom_codec_alg_priv_t *ctx,
-                                          va_list args) {
-  (void)ctx;
-  (void)args;
-  return AOM_CODEC_INCAPABLE;
-}
-
 static aom_image_t *encoder_get_preview(aom_codec_alg_priv_t *ctx) {
   YV12_BUFFER_CONFIG sd;
 
@@ -2663,7 +2631,6 @@ static aom_codec_ctrl_fn_map_t encoder_ctrl_maps[] = {
 
   // Setters
   { AV1_SET_REFERENCE, ctrl_set_reference },
-  { AOM_SET_POSTPROC, ctrl_set_previewpp },
   { AOME_SET_ROI_MAP, ctrl_set_roi_map },
   { AOME_SET_ACTIVEMAP, ctrl_set_active_map },
   { AOME_SET_SCALEMODE, ctrl_set_scale_mode },
@@ -2779,7 +2746,6 @@ static aom_codec_ctrl_fn_map_t encoder_ctrl_maps[] = {
   { AV1E_SET_SVC_LAYER_ID, ctrl_set_layer_id },
   { AV1E_SET_SVC_PARAMS, ctrl_set_svc_params },
   { AV1E_SET_SVC_REF_FRAME_CONFIG, ctrl_set_svc_ref_frame_config },
-  { AV1E_SET_VBR_CORPUS_COMPLEXITY_LAP, ctrl_set_vbr_corpus_complexity_lap },
   { AV1E_ENABLE_SB_MULTIPASS_UNIT_TEST, ctrl_enable_sb_multipass_unit_test },
 
   // Getters
@@ -2823,11 +2789,11 @@ static const aom_codec_enc_cfg_t encoder_usage_cfg[] = {
       SCALE_NUMERATOR,  // rc_resize_denominator
       SCALE_NUMERATOR,  // rc_resize_kf_denominator
 
-      AOM_SUPERRES_NONE,  // rc_superres_mode
-      SCALE_NUMERATOR,    // rc_superres_denominator
-      SCALE_NUMERATOR,    // rc_superres_kf_denominator
-      63,                 // rc_superres_qthresh
-      32,                 // rc_superres_kf_qthresh
+      SUPERRES_NONE,    // rc_superres_mode
+      SCALE_NUMERATOR,  // rc_superres_denominator
+      SCALE_NUMERATOR,  // rc_superres_kf_denominator
+      63,               // rc_superres_qthresh
+      32,               // rc_superres_kf_qthresh
 
       AOM_VBR,      // rc_end_usage
       { NULL, 0 },  // rc_twopass_stats_in
@@ -2938,11 +2904,10 @@ static const aom_codec_enc_cfg_t encoder_usage_cfg[] = {
   },
 };
 
-// This data structure and function are exported in aom/aomcx.h
 #ifndef VERSION_STRING
 #define VERSION_STRING
 #endif
-aom_codec_iface_t aom_codec_av1_cx_algo = {
+CODEC_INTERFACE(aom_codec_av1_cx) = {
   "AOMedia Project AV1 Encoder" VERSION_STRING,
   AOM_CODEC_INTERNAL_ABI_VERSION,
   AOM_CODEC_CAP_HIGHBITDEPTH | AOM_CODEC_CAP_ENCODER |
@@ -2969,5 +2934,3 @@ aom_codec_iface_t aom_codec_av1_cx_algo = {
       encoder_get_preview          // aom_codec_get_preview_frame_fn_t
   }
 };
-
-aom_codec_iface_t *aom_codec_av1_cx(void) { return &aom_codec_av1_cx_algo; }

@@ -80,7 +80,7 @@ class LevelTest
 };
 
 TEST_P(LevelTest, TestTargetLevelApi) {
-  static aom_codec_iface_t *codec = &aom_codec_av1_cx_algo;
+  static const aom_codec_iface_t *codec = &aom_codec_av1_cx_algo;
   aom_codec_ctx_t enc;
   aom_codec_enc_cfg_t cfg;
   EXPECT_EQ(AOM_CODEC_OK, aom_codec_enc_config_default(codec, &cfg, 0));
@@ -93,12 +93,12 @@ TEST_P(LevelTest, TestTargetLevelApi) {
            level != 21 && level != 22 && level != 23) ||
           level == 31 || operating_point > 31) {
         EXPECT_EQ(AOM_CODEC_OK,
-                  aom_codec_control(&enc, AV1E_SET_TARGET_SEQ_LEVEL_IDX,
-                                    target_level));
+                  AOM_CODEC_CONTROL_TYPECHECKED(
+                      &enc, AV1E_SET_TARGET_SEQ_LEVEL_IDX, target_level));
       } else {
         EXPECT_EQ(AOM_CODEC_INVALID_PARAM,
-                  aom_codec_control(&enc, AV1E_SET_TARGET_SEQ_LEVEL_IDX,
-                                    target_level));
+                  AOM_CODEC_CONTROL_TYPECHECKED(
+                      &enc, AV1E_SET_TARGET_SEQ_LEVEL_IDX, target_level));
       }
     }
   }

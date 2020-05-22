@@ -186,6 +186,7 @@ int main(int argc, char **argv) {
   aom_codec_err_t res;
   AvxVideoInfo info;
   AvxVideoWriter *writer = NULL;
+  const AvxInterface *encoder = NULL;
   int flags = 0;
   int allocated_raw_shift = 0;
   aom_img_fmt_t raw_fmt = AOM_IMG_FMT_I420;
@@ -228,7 +229,7 @@ int main(int argc, char **argv) {
   outfile_arg = argv[5];
   update_frame_num_arg = argv[6];
 
-  aom_codec_iface_t *encoder = get_aom_encoder_by_short_name(codec_arg);
+  encoder = get_aom_encoder_by_name(codec_arg);
   if (!encoder) die("Unsupported codec.");
 
   update_frame_num = (unsigned int)strtoul(update_frame_num_arg, NULL, 0);
@@ -245,7 +246,7 @@ int main(int argc, char **argv) {
       die("Update frame number couldn't larger than limit\n");
   }
 
-  info.codec_fourcc = get_fourcc_by_aom_encoder(encoder);
+  info.codec_fourcc = encoder->fourcc;
   info.frame_width = (int)strtol(width_arg, NULL, 0);
   info.frame_height = (int)strtol(height_arg, NULL, 0);
   info.time_base.numerator = 1;
@@ -265,13 +266,13 @@ int main(int argc, char **argv) {
   // Allocate memory with the border so that it can be used as a reference.
   if (!aom_img_alloc_with_border(&ext_ref, ref_fmt, info.frame_width,
                                  info.frame_height, 32, 8,
-                                 AOM_DEC_BORDER_IN_PIXELS)) {
+                                 AOM_BORDER_IN_PIXELS)) {
     die("Failed to allocate image.");
   }
 
-  printf("Using %s\n", aom_codec_iface_name(encoder));
+  printf("Using %s\n", aom_codec_iface_name(encoder->codec_interface()));
 
-  res = aom_codec_enc_config_default(encoder, &cfg, 0);
+  res = aom_codec_enc_config_default(encoder->codec_interface(), &cfg, 0);
   if (res) die_codec(&ecodec, "Failed to get default codec config.");
 
   cfg.g_w = info.frame_width;
@@ -292,7 +293,7 @@ int main(int argc, char **argv) {
   if (!(infile = fopen(infile_arg, "rb")))
     die("Failed to open %s for reading.", infile_arg);
 
-  if (aom_codec_enc_init(&ecodec, encoder, &cfg, flags))
+  if (aom_codec_enc_init(&ecodec, encoder->codec_interface(), &cfg, flags))
     die_codec(&ecodec, "Failed to initialize encoder");
 
   // Disable alt_ref.
@@ -300,8 +301,8 @@ int main(int argc, char **argv) {
     die_codec(&ecodec, "Failed to set enable auto alt ref");
 
   if (test_decode) {
-    aom_codec_iface_t *decoder = get_aom_decoder_by_short_name(codec_arg);
-    if (aom_codec_dec_init(&dcodec, decoder, NULL, 0))
+    const AvxInterface *decoder = get_aom_decoder_by_name(codec_arg);
+    if (aom_codec_dec_init(&dcodec, decoder->codec_interface(), NULL, 0))
       die_codec(&dcodec, "Failed to initialize decoder.");
   }
 

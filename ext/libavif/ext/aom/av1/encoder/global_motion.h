@@ -24,7 +24,6 @@ extern "C" {
 #define MAX_CORNERS 4096
 #define RANSAC_NUM_MOTIONS 1
 #define GM_REFINEMENT_COUNT 5
-#define MAX_DIRECTIONS 2
 
 typedef enum {
   GLOBAL_MOTION_FEATURE_BASED,
@@ -89,9 +88,9 @@ int64_t av1_refine_integerized_param(
   num_inliers entry is 0 should be ignored by the caller.
 */
 int av1_compute_global_motion(TransformationType type,
-                              unsigned char *src_buffer, int src_width,
-                              int src_height, int src_stride, int *src_corners,
-                              int num_src_corners, YV12_BUFFER_CONFIG *ref,
+                              unsigned char *frm_buffer, int frm_width,
+                              int frm_height, int frm_stride, int *frm_corners,
+                              int num_frm_corners, YV12_BUFFER_CONFIG *ref,
                               int bit_depth,
                               GlobalMotionEstimationType gm_estimation_type,
                               int *num_inliers_by_motion,
