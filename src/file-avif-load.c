@@ -98,7 +98,7 @@ typedef enum clProfileCurveType
   CL_PCT_PARAMETRIC_REC709
 } clProfileCurveType;
 
-static cmsHPROFILE _create_lcms_profile_from_NCLX ( const char *description_suffix, const avifNclxColourPrimaries colour_primaries,
+static cmsHPROFILE _create_lcms_profile_from_NCLX ( const char *description_suffix, const avifColorPrimaries colour_primaries,
     const clProfileCurveType trctype, const float gamma, const int maxLuminance )
 {
   float prim[8]; // outPrimaries: rX, rY, gX, gY, bX, bY, wX, wY
@@ -116,8 +116,8 @@ static cmsHPROFILE _create_lcms_profile_from_NCLX ( const char *description_suff
   cmsFloat64Number rec709_parameters[5] =
   { 2.2, 1.0 / 1.099,  0.099 / 1.099, 1.0 / 4.5, 0.081 };
 
-  avifNclxColourPrimariesGetValues ( colour_primaries, prim );
-  avifNclxColourPrimariesFind ( prim, &prim_name );
+  avifColorPrimariesGetValues ( colour_primaries, prim );
+  avifColorPrimariesFind ( prim, &prim_name );
 
   if ( ! prim_name )
     prim_name = "";
@@ -325,57 +325,75 @@ GimpImage * load_image ( GFile       *file,
     }
 
 
-  switch ( avif->profileFormat )
+  if ( avif->icc.data && ( avif->icc.size > 0 ) ) //load profile from ICC
     {
-    case AVIF_PROFILE_FORMAT_NONE:
-      break;
-    case AVIF_PROFILE_FORMAT_ICC:
       profile = gimp_color_profile_new_from_icc_profile ( avif->icc.data, avif->icc.size, error );
       if ( !profile )
         {
           g_printerr ( "%s: Failed to read ICC profile: %s\n", G_STRFUNC, ( *error )->message );
           g_clear_error ( error );
         }
-      break;
-    case AVIF_PROFILE_FORMAT_NCLX:
-      if ( avif->nclx.colourPrimaries == AVIF_NCLX_COLOUR_PRIMARIES_UNSPECIFIED ) break;
-      if ( avif->nclx.transferCharacteristics == AVIF_NCLX_TRANSFER_CHARACTERISTICS_UNSPECIFIED ) break;
+    }
+  else //load profile from CICP/NCLX information
+    {
+      avifColorPrimaries primaries_to_load;
+      avifTransferCharacteristics trc_to_load;
+
+      if ( ( avif->colorPrimaries == 2 /* AVIF_COLOR_PRIMARIES_UNSPECIFIED */ ) ||
+           ( avif->colorPrimaries == 0 /* AVIF_COLOR_PRIMARIES_UNKNOWN */ ) )
+        {
+          primaries_to_load = ( avifColorPrimaries ) 1; // AVIF_COLOR_PRIMARIES_BT709
+        }
+      else
+        {
+          primaries_to_load = avif->colorPrimaries;
+        }
+
+      if ( ( avif->transferCharacteristics == 2 /* AVIF_TRANSFER_CHARACTERISTICS_UNSPECIFIED */ ) ||
+           ( avif->transferCharacteristics == 0 /* AVIF_TRANSFER_CHARACTERISTICS_UNKNOWN */ ) )
+        {
+          trc_to_load = ( avifTransferCharacteristics ) 13; // AVIF_TRANSFER_CHARACTERISTICS_SRGB
+        }
+      else
+        {
+          trc_to_load = avif->transferCharacteristics;
+        }
 
       cmsHPROFILE lcms_profile = NULL;
 
-      switch ( avif->nclx.transferCharacteristics )
+      switch ( trc_to_load )
         {
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT2100_HLG, AVIF_NCLX_TRANSFER_CHARACTERISTICS_HLG */
+        /* AVIF_TRANSFER_CHARACTERISTICS_HLG */
         case 18:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "HLG RGB", avif->nclx.colourPrimaries, CL_PCT_HLG, 0, 0 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "HLG RGB", primaries_to_load, CL_PCT_HLG, 0, 0 );
           break;
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT2100_PQ, AVIF_NCLX_TRANSFER_CHARACTERISTICS_SMPTE2084 */
+        /* AVIF_TRANSFER_CHARACTERISTICS_SMPTE2084 */
         case 16:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "PQ RGB", avif->nclx.colourPrimaries, CL_PCT_PQ, 0, 10000 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "PQ RGB", primaries_to_load, CL_PCT_PQ, 0, 10000 );
           break;
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_GAMMA22, AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT470M */
+        /* AVIF_TRANSFER_CHARACTERISTICS_BT470M */
         case 4:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "Gamma2.2 RGB",avif->nclx.colourPrimaries, CL_PCT_GAMMA, 2.2f, 0 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "Gamma2.2 RGB", primaries_to_load, CL_PCT_GAMMA, 2.2f, 0 );
           break;
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_GAMMA28, AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT470BG */
+        /* AVIF_TRANSFER_CHARACTERISTICS_BT470BG */
         case 5:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "Gamma2.8 RGB", avif->nclx.colourPrimaries, CL_PCT_GAMMA, 2.8f, 0 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "Gamma2.8 RGB", primaries_to_load, CL_PCT_GAMMA, 2.8f, 0 );
           break;
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_LINEAR */
+        /* AVIF_TRANSFER_CHARACTERISTICS_LINEAR */
         case 8:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "linear RGB", avif->nclx.colourPrimaries, CL_PCT_GAMMA, 1.0f, 0 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "linear RGB", primaries_to_load, CL_PCT_GAMMA, 1.0f, 0 );
           break;
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_SRGB */
+        /* AVIF_TRANSFER_CHARACTERISTICS_SRGB */
         case 13:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "sRGB-TRC RGB", avif->nclx.colourPrimaries, CL_PCT_PARAMETRIC_SRGB, 0, 0 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "sRGB-TRC RGB", primaries_to_load, CL_PCT_PARAMETRIC_SRGB, 0, 0 );
           break;
-        /* AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT709 */
+        /* AVIF_TRANSFER_CHARACTERISTICS_BT709 */
         case 1:
-          lcms_profile = _create_lcms_profile_from_NCLX ( "Rec709 RGB", avif->nclx.colourPrimaries, CL_PCT_PARAMETRIC_REC709, 0, 0 );
+          lcms_profile = _create_lcms_profile_from_NCLX ( "Rec709 RGB", primaries_to_load, CL_PCT_PARAMETRIC_REC709, 0, 0 );
           break;
         default:
           //missing implementation, showing a debug message so far
-          g_message ( "AVIF_PROFILE_FORMAT_NCLX colourPrimaries: %d, transferCharacteristics: %d\nPlease, report file to the plug-in author.",avif->nclx.colourPrimaries,avif->nclx.transferCharacteristics );
+          g_message ( "CICP colorPrimaries: %d, transferCharacteristics: %d\nPlease, report file to the plug-in author.",avif->colorPrimaries,avif->transferCharacteristics );
           profile = NULL;
           lcms_profile = NULL;
           break;
@@ -385,14 +403,13 @@ GimpImage * load_image ( GFile       *file,
         {
           profile = gimp_color_profile_new_from_lcms_profile ( lcms_profile, error );
           if ( ! profile )
-          {
-            g_printerr ( "%s: gimp_color_profile_new_from_lcms_profile call failed: %s\n", G_STRFUNC, ( *error )->message );
-            g_clear_error ( error );
-          }
+            {
+              g_printerr ( "%s: gimp_color_profile_new_from_lcms_profile call failed: %s\n", G_STRFUNC, ( *error )->message );
+              g_clear_error ( error );
+            }
           cmsCloseProfile ( lcms_profile );
         }
 
-      break;
     }
 
   avifRGBImage rgb;

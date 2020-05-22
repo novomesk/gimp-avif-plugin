@@ -182,6 +182,49 @@ avifplugin_set_tiles ( unsigned int FrameWidth,
     }
 }
 
+static float
+ColorPrimariesDistance ( const avifColorPrimaries tested, const float inPrimaries[8] )
+{
+  float prim[8];
+  float distance = 0;
+
+  avifColorPrimariesGetValues ( tested, prim );
+
+  for ( unsigned int i = 0; i < 8; i++ )
+    {
+      float diff = inPrimaries[i] - prim[i];
+      distance = distance + ( diff * diff );
+    }
+
+  return distance;
+}
+
+static avifColorPrimaries
+ColorPrimariesBestMatch ( const float inPrimaries[8] )
+{
+  avifColorPrimaries winner = ( avifColorPrimaries ) 1; //AVIF_COLOR_PRIMARIES_BT709
+  float winnerdistance = ColorPrimariesDistance ( winner, inPrimaries );
+  float testdistance;
+
+  /* AVIF_COLOR_PRIMARIES_BT2020 */
+  testdistance = ColorPrimariesDistance ( ( avifColorPrimaries ) 9, inPrimaries );
+  if ( testdistance < winnerdistance )
+    {
+      winnerdistance = testdistance;
+      winner = ( avifColorPrimaries ) 9;
+    }
+
+  /* AVIF_COLOR_PRIMARIES_SMPTE432 */
+  testdistance = ColorPrimariesDistance ( ( avifColorPrimaries ) 12, inPrimaries );
+  if ( testdistance < winnerdistance )
+    {
+      winnerdistance = testdistance;
+      winner = ( avifColorPrimaries ) 12;
+    }
+
+  return winner;
+}
+
 gboolean   save_layer ( GFile         *file,
                         GimpImage     *image,
                         GimpDrawable  *drawable,
@@ -200,7 +243,7 @@ gboolean   save_layer ( GFile         *file,
   gint            savedepth;
   gboolean        out_linear, save_alpha, is_gray;
   guchar         *pixels;
-  
+
   GimpColorProfile *profile = NULL;
   int             min_quantizer = AVIF_QUANTIZER_BEST_QUALITY;
   int             max_quantizer = 40;
@@ -254,16 +297,6 @@ gboolean   save_layer ( GFile         *file,
 
 
   profile = gimp_image_get_effective_color_profile ( image );
-  space = gimp_color_profile_get_space ( profile,
-                                         GIMP_COLOR_RENDERING_INTENT_RELATIVE_COLORIMETRIC,
-                                         error );
-
-  if ( error && *error )
-    {
-      g_printerr ( "%s: error getting the profile space: %s\n", G_STRFUNC, ( *error )->message );
-      g_clear_error ( error );
-      space = gimp_drawable_get_format ( drawable );
-    }
 
   switch ( gimp_image_get_precision ( image ) )
     {
@@ -305,6 +338,135 @@ gboolean   save_layer ( GFile         *file,
           out_linear = FALSE;
         }
     }
+
+  space = gimp_color_profile_get_space ( profile,
+                                         GIMP_COLOR_RENDERING_INTENT_RELATIVE_COLORIMETRIC,
+                                         error );
+
+  if ( error && *error )
+    {
+      g_printerr ( "%s: error getting the profile space: %s\n", G_STRFUNC, ( *error )->message );
+      g_clear_error ( error );
+      space = gimp_drawable_get_format ( drawable );
+    }
+
+  avifImage * avif = avifImageCreate ( drawable_width, drawable_height, savedepth, pixel_format );
+
+  if ( save_icc_profile )
+    {
+      const uint8_t *icc_data;
+      size_t         icc_length;
+
+      if ( gimp_color_profile_is_gray ( profile ) )
+        {
+          g_object_unref ( profile );
+
+          if ( out_linear )
+            {
+              profile = gimp_color_profile_new_d65_gray_linear ();
+            }
+          else
+            {
+              profile = gimp_color_profile_new_d65_gray_srgb_trc ();
+            }
+        }
+      icc_data = gimp_color_profile_get_icc_profile ( profile, &icc_length );
+      avifImageSetProfileICC ( avif, icc_data, icc_length );
+
+    }
+  else
+    {
+      avif->yuvRange = AVIF_RANGE_FULL;
+
+      if ( ( drawable_type == GIMP_GRAYA_IMAGE ) ||
+           ( drawable_type == GIMP_GRAY_IMAGE ) ) //grey profiles
+        {
+          avif->colorPrimaries = ( avifColorPrimaries ) 1; // AVIF_COLOR_PRIMARIES_BT709
+          if ( out_linear )
+            {
+              avif->transferCharacteristics = ( avifTransferCharacteristics ) 8; //AVIF_TRANSFER_CHARACTERISTICS_LINEAR
+            }
+          else
+            {
+              avif->transferCharacteristics = ( avifTransferCharacteristics ) 13; //AVIF_TRANSFER_CHARACTERISTICS_SRGB
+            }
+
+          avif->matrixCoefficients = ( avifMatrixCoefficients ) 1; //AVIF_MATRIX_COEFFICIENTS_BT709
+        }
+      else //autodetect supported primaries
+        {
+          double xw, yw, xr, yr, xg, yg, xb, yb;
+          const Babl *red_trc;
+          const Babl *green_trc;
+          const Babl *blue_trc;
+          float primaries[8]; // rX, rY, gX, gY, bX, bY, wX, wY
+          const char *primaries_name = NULL;
+          avifColorPrimaries primaries_found = ( avifColorPrimaries ) 0;
+
+          babl_space_get ( space, &xw, &yw, &xr, &yr, &xg, &yg, &xb, &yb, &red_trc, &green_trc, &blue_trc );
+
+          primaries[0] = xr;
+          primaries[1] = yr;
+          primaries[2] = xg;
+          primaries[3] = yg;
+          primaries[4] = xb;
+          primaries[5] = yb;
+          primaries[6] = xw;
+          primaries[7] = yw;
+
+          primaries_found = avifColorPrimariesFind ( primaries, &primaries_name );
+
+          if ( primaries_found == 0 )
+            {
+              primaries_found = ColorPrimariesBestMatch ( primaries );
+            }
+
+          avif->colorPrimaries = primaries_found;
+
+          if ( primaries_found == 1 )
+            {
+              avif->matrixCoefficients = ( avifMatrixCoefficients ) 1; //AVIF_MATRIX_COEFFICIENTS_BT709
+            }
+          else
+            {
+              avif->matrixCoefficients = ( avifMatrixCoefficients ) 12; //AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL
+            }
+
+          if ( out_linear )
+            {
+              red_trc = babl_trc ( "linear" );
+              avif->transferCharacteristics = ( avifTransferCharacteristics ) 8; //AVIF_TRANSFER_CHARACTERISTICS_LINEAR
+            }
+          else
+            {
+              red_trc = babl_trc ( "sRGB" );
+              avif->transferCharacteristics = ( avifTransferCharacteristics ) 13; //AVIF_TRANSFER_CHARACTERISTICS_SRGB
+            }
+
+          green_trc = red_trc;
+          blue_trc = red_trc;
+
+          avifColorPrimariesGetValues ( primaries_found, primaries );
+
+          xw = primaries[6];
+          yw = primaries[7];
+          xr = primaries[0];
+          yr = primaries[1];
+          xg = primaries[2];
+          yg = primaries[3];
+          xb = primaries[4];
+          yb = primaries[5];
+
+          space = babl_space_from_chromaticities ( NULL, xw, yw, xr, yr, xg, yg, xb, yb, red_trc, green_trc, blue_trc, BABL_SPACE_FLAG_NONE );
+          if ( !space )
+            {
+              g_warning ( "babl_space_from_chromaticities failed!\n" );
+            }
+        }
+    }
+
+  g_object_unref ( profile );
+
 
   switch ( drawable_type )
     {
@@ -375,11 +537,11 @@ gboolean   save_layer ( GFile         *file,
           pixels = g_new ( guchar, drawable_width * drawable_height * 2 );
           if ( out_linear )
             {
-              file_format = babl_format_with_space ( "YA u8", space );
+              file_format = babl_format ( "YA u8" );
             }
           else
             {
-              file_format = babl_format_with_space ( "Y'A u8", space );
+              file_format = babl_format ( "Y'A u8" );
             }
         }
       else
@@ -387,11 +549,11 @@ gboolean   save_layer ( GFile         *file,
           pixels = g_new ( guchar, drawable_width * drawable_height * 4 );
           if ( out_linear )
             {
-              file_format = babl_format_with_space ( "YA u16", space );
+              file_format = babl_format ( "YA u16" );
             }
           else
             {
-              file_format = babl_format_with_space ( "Y'A u16", space );
+              file_format = babl_format ( "Y'A u16" );
             }
         }
       break;
@@ -404,11 +566,11 @@ gboolean   save_layer ( GFile         *file,
           pixels = g_new ( guchar, drawable_width * drawable_height );
           if ( out_linear )
             {
-              file_format = babl_format_with_space ( "Y u8", space );
+              file_format = babl_format ( "Y u8" );
             }
           else
             {
-              file_format = babl_format_with_space ( "Y' u8", space );
+              file_format = babl_format ( "Y' u8" );
             }
         }
       else
@@ -416,11 +578,11 @@ gboolean   save_layer ( GFile         *file,
           pixels = g_new ( guchar, drawable_width * drawable_height * 2 );
           if ( out_linear )
             {
-              file_format = babl_format_with_space ( "Y u16", space );
+              file_format = babl_format ( "Y u16" );
             }
           else
             {
-              file_format = babl_format_with_space ( "Y' u16", space );
+              file_format = babl_format ( "Y' u16" );
             }
         }
       break;
@@ -428,22 +590,6 @@ gboolean   save_layer ( GFile         *file,
       g_assert_not_reached ();
     }
 
-  avifImage * avif = avifImageCreate ( drawable_width, drawable_height, savedepth, pixel_format );
-
-  if ( save_icc_profile )
-    {
-      const uint8_t *icc_data;
-      size_t         icc_length;
-      icc_data = gimp_color_profile_get_icc_profile ( profile, &icc_length );
-      avifImageSetProfileICC ( avif, icc_data, icc_length );
-
-    }
-  else
-    {
-      avifImageSetProfileNone ( avif );
-    }
-
-  g_object_unref ( profile );
 
 
   if ( save_exif && metadata )
@@ -610,16 +756,16 @@ gboolean   save_layer ( GFile         *file,
       if ( avifImageUsesU16 ( avif ) )
         {
           rgb.depth = 16;
-          
-          const uint16_t  *graypixels_src = (const uint16_t*) pixels;
+
+          const uint16_t  *graypixels_src = ( const uint16_t* ) pixels;
           uint16_t  *graypixels_dest,tmpval16;
-          
+
           if ( save_alpha )
             {
               rgb.format = AVIF_RGB_FORMAT_RGBA;
               rgb.rowBytes = rgb.width * 8;
               rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
-              graypixels_dest = (uint16_t*) rgb.pixels;
+              graypixels_dest = ( uint16_t* ) rgb.pixels;
 
               for ( j = 0; j < drawable_height; ++j )
                 {
@@ -627,14 +773,14 @@ gboolean   save_layer ( GFile         *file,
                     {
                       tmpval16 = *graypixels_src;
                       graypixels_src++;
-                      
+
                       *graypixels_dest = tmpval16; //R=G=B
                       graypixels_dest++;
                       *graypixels_dest = tmpval16; //G
                       graypixels_dest++;
                       *graypixels_dest = tmpval16; //B
                       graypixels_dest++;
-                      
+
                       tmpval16 = *graypixels_src;
                       graypixels_src++;
                       *graypixels_dest = tmpval16; //A
@@ -647,7 +793,7 @@ gboolean   save_layer ( GFile         *file,
               rgb.format = AVIF_RGB_FORMAT_RGB;
               rgb.rowBytes = rgb.width * 6;
               rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
-              graypixels_dest = (uint16_t*) rgb.pixels;
+              graypixels_dest = ( uint16_t* ) rgb.pixels;
 
               for ( j = 0; j < drawable_height; ++j )
                 {
@@ -655,7 +801,7 @@ gboolean   save_layer ( GFile         *file,
                     {
                       tmpval16 = *graypixels_src;
                       graypixels_src++;
-                      
+
                       *graypixels_dest = tmpval16; //R=G=B
                       graypixels_dest++;
                       *graypixels_dest = tmpval16; //G
@@ -669,8 +815,8 @@ gboolean   save_layer ( GFile         *file,
       else //8bit gray
         {
           rgb.depth = 8;
-          
-          const uint8_t  *graypixels8_src = (const uint8_t*) pixels;
+
+          const uint8_t  *graypixels8_src = ( const uint8_t* ) pixels;
           uint8_t  *graypixels8_dest,tmpval8;
           if ( save_alpha )
             {
@@ -678,21 +824,21 @@ gboolean   save_layer ( GFile         *file,
               rgb.rowBytes = rgb.width * 4;
               rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
               graypixels8_dest = rgb.pixels;
-              
+
               for ( j = 0; j < drawable_height; ++j )
                 {
                   for ( i = 0; i < drawable_width; ++i )
                     {
                       tmpval8 = *graypixels8_src;
                       graypixels8_src++;
-                      
+
                       *graypixels8_dest = tmpval8; //R=G=B
                       graypixels8_dest++;
                       *graypixels8_dest = tmpval8; //G
                       graypixels8_dest++;
                       *graypixels8_dest = tmpval8; //B
                       graypixels8_dest++;
-                      
+
                       tmpval8 = *graypixels8_src;
                       graypixels8_src++;
                       *graypixels8_dest = tmpval8; //A
@@ -706,14 +852,14 @@ gboolean   save_layer ( GFile         *file,
               rgb.rowBytes = rgb.width * 3;
               rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
               graypixels8_dest = rgb.pixels;
-              
+
               for ( j = 0; j < drawable_height; ++j )
                 {
                   for ( i = 0; i < drawable_width; ++i )
                     {
                       tmpval8 = *graypixels8_src;
                       graypixels8_src++;
-                      
+
                       *graypixels8_dest = tmpval8; //R=G=B
                       graypixels8_dest++;
                       *graypixels8_dest = tmpval8; //G
@@ -724,9 +870,9 @@ gboolean   save_layer ( GFile         *file,
                 }
             }
         }
-        
-        res = avifImageRGBToYUV ( avif, &rgb);
-        g_free ( rgb.pixels );
+
+      res = avifImageRGBToYUV ( avif, &rgb );
+      g_free ( rgb.pixels );
     }
   else //color export
     {
@@ -760,17 +906,17 @@ gboolean   save_layer ( GFile         *file,
               rgb.rowBytes = rgb.width * 3;
             }
         }
-        
-        res = avifImageRGBToYUV ( avif, &rgb);
+
+      res = avifImageRGBToYUV ( avif, &rgb );
     }
 
   g_free ( pixels );
 
   if ( res != AVIF_RESULT_OK )
-  {
-    g_message ( "ERROR in avifImageRGBToYUV: %s\n", avifResultToString ( res ) );
-  }
-  
+    {
+      g_message ( "ERROR in avifImageRGBToYUV: %s\n", avifResultToString ( res ) );
+    }
+
   if ( max_quantizer > AVIF_QUANTIZER_WORST_QUALITY )
     {
       max_quantizer = AVIF_QUANTIZER_WORST_QUALITY;

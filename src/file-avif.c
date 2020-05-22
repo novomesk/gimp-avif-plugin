@@ -238,8 +238,8 @@ avif_create_procedure ( GimpPlugIn  *plug_in,
 
       GIMP_PROC_ARG_BOOLEAN ( procedure, "save-color-profile",
                               "Save color profle",
-                              "Toggle saving the color profile",
-                              gimp_export_color_profile (),
+                              "Enable to save ICC color profile, disable to save NCLX information",
+                              FALSE,
                               G_PARAM_READWRITE );
 
       GIMP_PROC_ARG_BOOLEAN ( procedure, "save-exif",
