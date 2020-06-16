@@ -92,7 +92,8 @@ static GimpValueArray * avif_load ( GimpProcedure        *procedure,
 static GimpValueArray * avif_save ( GimpProcedure        *procedure,
                                     GimpRunMode           run_mode,
                                     GimpImage            *image,
-                                    GimpDrawable         *drawable,
+                                    gint                  n_drawables,
+                                    GimpDrawable        **drawables,
                                     GFile                *file,
                                     const GimpValueArray *args,
                                     gpointer              run_data );
@@ -293,7 +294,8 @@ static GimpValueArray *
 avif_save ( GimpProcedure        *procedure,
             GimpRunMode           run_mode,
             GimpImage            *image,
-            GimpDrawable         *drawable,
+            gint                  n_drawables,
+            GimpDrawable        **drawables,
             GFile                *file,
             const GimpValueArray *args,
             gpointer              run_data )
@@ -343,7 +345,7 @@ avif_save ( GimpProcedure        *procedure,
       if ( save_alpha_channel )
         capabilities |= GIMP_EXPORT_CAN_HANDLE_ALPHA;
 
-      export = gimp_export_image ( &image, &drawable, "AVIF",
+      export = gimp_export_image ( &image, &n_drawables, &drawables, "AVIF",
                                    capabilities );
 
       if ( export == GIMP_EXPORT_CANCEL )
@@ -354,7 +356,7 @@ avif_save ( GimpProcedure        *procedure,
 
   if ( animation )
     {
-      if ( ! save_animation ( file, image, drawable, G_OBJECT ( config ), metadata,
+      if ( ! save_animation ( file, image, n_drawables, drawables, G_OBJECT ( config ), metadata,
                               &error ) )
         {
           status = GIMP_PDB_EXECUTION_ERROR;
@@ -362,7 +364,17 @@ avif_save ( GimpProcedure        *procedure,
     }
   else
     {
-      if ( ! save_layer ( file, image, drawable, G_OBJECT ( config ), metadata,
+      if ( n_drawables != 1 )
+        {
+          g_set_error ( &error, G_FILE_ERROR, 0,
+                        "The AVIF plug-in cannot export multiple layer, except in animation mode." );
+
+          return gimp_procedure_new_return_values ( procedure,
+                 GIMP_PDB_CALLING_ERROR,
+                 error );
+        }
+
+      if ( ! save_layer ( file, image, drawables[0], G_OBJECT ( config ), metadata,
                           &error ) )
         {
           status = GIMP_PDB_EXECUTION_ERROR;

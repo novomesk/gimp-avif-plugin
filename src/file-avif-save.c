@@ -1014,7 +1014,8 @@ gboolean   save_layer ( GFile         *file,
 
 gboolean   save_animation ( GFile         *file,
                             GimpImage     *image,
-                            GimpDrawable  *drawable,
+                            gint           n_drawables,
+                            GimpDrawable **drawables,
                             GObject       *config,
                             GimpMetadata  *metadata,
                             GError       **error )
