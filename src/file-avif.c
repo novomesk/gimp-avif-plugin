@@ -203,8 +203,9 @@ avif_create_procedure ( GimpPlugIn  *plug_in,
 
       GIMP_PROC_ARG_INT ( procedure, "pixel-format",
                           "Pixel Format",
-                          "YUV444 (needs lot of RAM), YUV422, YUV420",
-                          AVIF_PIXEL_FORMAT_YUV444, AVIF_PIXEL_FORMAT_YUV420, AVIF_PIXEL_FORMAT_YUV420,
+                          "YUV444 (needs lot of RAM), YUV422, YUV420, Grayscale",
+                          AVIF_PIXEL_FORMAT_YUV444, AVIF_PIXEL_FORMAT_YUV400,
+                          AVIF_PIXEL_FORMAT_YUV420,
                           G_PARAM_READWRITE );
 
       GIMP_PROC_ARG_INT ( procedure, "av1-encoder",
@@ -307,6 +308,7 @@ avif_save ( GimpProcedure        *procedure,
   gboolean             animation;
   gboolean             save_alpha_channel;
   GError              *error  = NULL;
+  avifPixelFormat      pixel_format = AVIF_PIXEL_FORMAT_YUV420;
 
 
   gegl_init ( NULL, NULL );
@@ -331,13 +333,22 @@ avif_save ( GimpProcedure        *procedure,
   g_object_get ( config,
                  "animation", &animation,
                  "save-alpha-channel", &save_alpha_channel,
+                 "pixel-format", &pixel_format,
                  NULL );
 
   if ( run_mode == GIMP_RUN_INTERACTIVE ||
        run_mode == GIMP_RUN_WITH_LAST_VALS )
     {
-      GimpExportCapabilities capabilities = ( GIMP_EXPORT_CAN_HANDLE_RGB     |
-                                              GIMP_EXPORT_CAN_HANDLE_GRAY );
+      GimpExportCapabilities capabilities;
+
+      if ( pixel_format == AVIF_PIXEL_FORMAT_YUV400 )
+        {
+          capabilities = GIMP_EXPORT_CAN_HANDLE_GRAY;
+        }
+      else
+        {
+          capabilities = ( GIMP_EXPORT_CAN_HANDLE_RGB | GIMP_EXPORT_CAN_HANDLE_GRAY );
+        }
 
       if ( animation )
         capabilities |= GIMP_EXPORT_CAN_HANDLE_LAYERS_AS_ANIMATION;

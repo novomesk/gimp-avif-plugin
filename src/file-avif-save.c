@@ -350,12 +350,21 @@ gboolean   save_layer ( GFile         *file,
       space = gimp_drawable_get_format ( drawable );
     }
 
+  if ( ( drawable_type == GIMP_GRAYA_IMAGE ) ||
+       ( drawable_type == GIMP_GRAY_IMAGE ) ) //force YUV400 for grey images
+    {
+      pixel_format = AVIF_PIXEL_FORMAT_YUV400;
+    }
+
   avifImage * avif = avifImageCreate ( drawable_width, drawable_height, savedepth, pixel_format );
+  avif->yuvRange = AVIF_RANGE_FULL;
 
   if ( save_icc_profile )
     {
       const uint8_t *icc_data;
       size_t         icc_length;
+
+      avif->matrixCoefficients = ( avifMatrixCoefficients ) 1; //AVIF_MATRIX_COEFFICIENTS_BT709
 
       if ( gimp_color_profile_is_gray ( profile ) )
         {
@@ -364,10 +373,12 @@ gboolean   save_layer ( GFile         *file,
           if ( out_linear )
             {
               profile = gimp_color_profile_new_d65_gray_linear ();
+              avif->transferCharacteristics = ( avifTransferCharacteristics ) 8; //AVIF_TRANSFER_CHARACTERISTICS_LINEAR
             }
           else
             {
               profile = gimp_color_profile_new_d65_gray_srgb_trc ();
+              avif->transferCharacteristics = ( avifTransferCharacteristics ) 13; //AVIF_TRANSFER_CHARACTERISTICS_SRGB
             }
         }
       icc_data = gimp_color_profile_get_icc_profile ( profile, &icc_length );
@@ -376,7 +387,6 @@ gboolean   save_layer ( GFile         *file,
     }
   else
     {
-      avif->yuvRange = AVIF_RANGE_FULL;
 
       if ( ( drawable_type == GIMP_GRAYA_IMAGE ) ||
            ( drawable_type == GIMP_GRAY_IMAGE ) ) //grey profiles
@@ -747,135 +757,143 @@ gboolean   save_layer ( GFile         *file,
 
   g_object_unref ( buffer );
 
-  avifRGBImage rgb;
-  rgb.width = avif->width;
-  rgb.height = avif->height;
+  if ( save_alpha )
+    {
+      avif->alphaRange = AVIF_RANGE_FULL;
+      avifImageAllocatePlanes ( avif, AVIF_PLANES_YUV | AVIF_PLANES_A );
+    }
+  else
+    {
+      avifImageAllocatePlanes ( avif, AVIF_PLANES_YUV );
+    }
+
 
   if ( is_gray ) //Gray export
     {
       if ( avifImageUsesU16 ( avif ) )
         {
-          rgb.depth = 16;
-
           const uint16_t  *graypixels_src = ( const uint16_t* ) pixels;
-          uint16_t  *graypixels_dest,tmpval16;
+          uint16_t  *graypixels_dest;
 
           if ( save_alpha )
             {
-              rgb.format = AVIF_RGB_FORMAT_RGBA;
-              rgb.rowBytes = rgb.width * 8;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
-              graypixels_dest = ( uint16_t* ) rgb.pixels;
+              uint16_t  *alpha_dest;
 
-              for ( j = 0; j < drawable_height; ++j )
+              if ( savedepth == 10 )
                 {
-                  for ( i = 0; i < drawable_width; ++i )
+                  for ( j = 0; j < drawable_height; ++j )
                     {
-                      tmpval16 = *graypixels_src;
-                      graypixels_src++;
+                      graypixels_dest = ( uint16_t* ) ( j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0] );
+                      alpha_dest      = ( uint16_t* ) ( j * avif->alphaRowBytes + avif->alphaPlane );
+                      for ( i = 0; i < drawable_width; ++i )
+                        {
+                          *graypixels_dest = ( *graypixels_src ) >> 6;
+                          graypixels_dest++;
+                          graypixels_src++;
 
-                      *graypixels_dest = tmpval16; //R=G=B
-                      graypixels_dest++;
-                      *graypixels_dest = tmpval16; //G
-                      graypixels_dest++;
-                      *graypixels_dest = tmpval16; //B
-                      graypixels_dest++;
+                          *alpha_dest = ( *graypixels_src ) >> 6;
+                          alpha_dest++;
+                          graypixels_src++;
+                        }
+                    }
+                }
+              else //savedepth == 12
+                {
+                  for ( j = 0; j < drawable_height; ++j )
+                    {
+                      graypixels_dest = ( uint16_t* ) ( j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0] );
+                      alpha_dest      = ( uint16_t* ) ( j * avif->alphaRowBytes + avif->alphaPlane );
+                      for ( i = 0; i < drawable_width; ++i )
+                        {
+                          *graypixels_dest = ( *graypixels_src ) >> 4;
+                          graypixels_dest++;
+                          graypixels_src++;
 
-                      tmpval16 = *graypixels_src;
-                      graypixels_src++;
-                      *graypixels_dest = tmpval16; //A
-                      graypixels_dest++;
+                          *alpha_dest = ( *graypixels_src ) >> 4;
+                          alpha_dest++;
+                          graypixels_src++;
+                        }
                     }
                 }
             }
-          else
+          else //no alpha channel
             {
-              rgb.format = AVIF_RGB_FORMAT_RGB;
-              rgb.rowBytes = rgb.width * 6;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
-              graypixels_dest = ( uint16_t* ) rgb.pixels;
-
-              for ( j = 0; j < drawable_height; ++j )
+              if ( savedepth == 10 )
                 {
-                  for ( i = 0; i < drawable_width; ++i )
+                  for ( j = 0; j < drawable_height; ++j )
                     {
-                      tmpval16 = *graypixels_src;
-                      graypixels_src++;
-
-                      *graypixels_dest = tmpval16; //R=G=B
-                      graypixels_dest++;
-                      *graypixels_dest = tmpval16; //G
-                      graypixels_dest++;
-                      *graypixels_dest = tmpval16; //B
-                      graypixels_dest++;
+                      graypixels_dest = ( uint16_t* ) ( j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0] );
+                      for ( i = 0; i < drawable_width; ++i )
+                        {
+                          *graypixels_dest = ( *graypixels_src ) >> 6;
+                          graypixels_dest++;
+                          graypixels_src++;
+                        }
+                    }
+                }
+              else //savedepth == 12
+                {
+                  for ( j = 0; j < drawable_height; ++j )
+                    {
+                      graypixels_dest = ( uint16_t* ) ( j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0] );
+                      for ( i = 0; i < drawable_width; ++i )
+                        {
+                          *graypixels_dest = ( *graypixels_src ) >> 4;
+                          graypixels_dest++;
+                          graypixels_src++;
+                        }
                     }
                 }
             }
         }
       else //8bit gray
         {
-          rgb.depth = 8;
-
           const uint8_t  *graypixels8_src = ( const uint8_t* ) pixels;
-          uint8_t  *graypixels8_dest,tmpval8;
+          uint8_t  *graypixels8_dest;
           if ( save_alpha )
             {
-              rgb.format = AVIF_RGB_FORMAT_RGBA;
-              rgb.rowBytes = rgb.width * 4;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
-              graypixels8_dest = rgb.pixels;
+              uint8_t *alpha8_dest;
 
               for ( j = 0; j < drawable_height; ++j )
                 {
+                  graypixels8_dest = j * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
+                  alpha8_dest = j * avif->alphaRowBytes + avif->alphaPlane;
                   for ( i = 0; i < drawable_width; ++i )
                     {
-                      tmpval8 = *graypixels8_src;
+                      *graypixels8_dest = *graypixels8_src;
+                      graypixels8_dest++;
                       graypixels8_src++;
 
-                      *graypixels8_dest = tmpval8; //R=G=B
-                      graypixels8_dest++;
-                      *graypixels8_dest = tmpval8; //G
-                      graypixels8_dest++;
-                      *graypixels8_dest = tmpval8; //B
-                      graypixels8_dest++;
-
-                      tmpval8 = *graypixels8_src;
+                      *alpha8_dest = *graypixels8_src;
+                      alpha8_dest++;
                       graypixels8_src++;
-                      *graypixels8_dest = tmpval8; //A
-                      graypixels8_dest++;
                     }
                 }
             }
           else
             {
-              rgb.format = AVIF_RGB_FORMAT_RGB;
-              rgb.rowBytes = rgb.width * 3;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
-              graypixels8_dest = rgb.pixels;
 
               for ( j = 0; j < drawable_height; ++j )
                 {
+                  graypixels8_dest = j * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
                   for ( i = 0; i < drawable_width; ++i )
                     {
-                      tmpval8 = *graypixels8_src;
+                      *graypixels8_dest = *graypixels8_src;
+                      graypixels8_dest++;
                       graypixels8_src++;
-
-                      *graypixels8_dest = tmpval8; //R=G=B
-                      graypixels8_dest++;
-                      *graypixels8_dest = tmpval8; //G
-                      graypixels8_dest++;
-                      *graypixels8_dest = tmpval8; //B
-                      graypixels8_dest++;
                     }
                 }
             }
         }
 
-      res = avifImageRGBToYUV ( avif, &rgb );
-      g_free ( rgb.pixels );
+
+      g_free ( pixels );
     }
   else //color export
     {
+      avifRGBImage rgb;
+      rgb.width = avif->width;
+      rgb.height = avif->height;
       rgb.pixels = pixels;
 
       if ( avifImageUsesU16 ( avif ) ) //10 and 12 bit depth export
@@ -908,13 +926,12 @@ gboolean   save_layer ( GFile         *file,
         }
 
       res = avifImageRGBToYUV ( avif, &rgb );
-    }
+      g_free ( pixels );
 
-  g_free ( pixels );
-
-  if ( res != AVIF_RESULT_OK )
-    {
-      g_message ( "ERROR in avifImageRGBToYUV: %s\n", avifResultToString ( res ) );
+      if ( res != AVIF_RESULT_OK )
+        {
+          g_message ( "ERROR in avifImageRGBToYUV: %s\n", avifResultToString ( res ) );
+        }
     }
 
   if ( max_quantizer > AVIF_QUANTIZER_WORST_QUALITY )

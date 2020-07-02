@@ -224,6 +224,7 @@ gboolean   save_dialog ( GimpImage     *image,
   store = gimp_int_store_new ( "YUV444 (best quality)",    AVIF_PIXEL_FORMAT_YUV444,
                                "YUV422 (better quality)",  AVIF_PIXEL_FORMAT_YUV422,
                                "YUV420 (standard quality)",AVIF_PIXEL_FORMAT_YUV420,
+                               "YUV400 (grayscale)",       AVIF_PIXEL_FORMAT_YUV400,
                                NULL );
   combo = gimp_prop_int_combo_box_new ( config, "pixel-format",
                                         GIMP_INT_STORE ( store ) );
