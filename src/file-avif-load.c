@@ -688,8 +688,7 @@ GimpImage * load_image ( GFile       *file,
   else //loading colors, YUV to RGB conversion
     {
       avifRGBImage rgb;
-      rgb.width = avif->width;
-      rgb.height = avif->height;
+      avifRGBImageSetDefaults ( &rgb, avif );
 
       if ( loadalpha )
         {

@@ -892,8 +892,7 @@ gboolean   save_layer ( GFile         *file,
   else //color export
     {
       avifRGBImage rgb;
-      rgb.width = avif->width;
-      rgb.height = avif->height;
+      avifRGBImageSetDefaults ( &rgb, avif );
       rgb.pixels = pixels;
 
       if ( avifImageUsesU16 ( avif ) ) //10 and 12 bit depth export
