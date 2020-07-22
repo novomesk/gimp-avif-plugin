@@ -473,6 +473,7 @@ GimpImage * load_image ( GFile       *file,
           const uint16_t *alpha16_src;
           const uint16_t *gray16_src;
           uint16_t tmpval16,tmp16_alpha;
+          int tmp_pixelval;
 
           if ( loadlinear )
             {
@@ -502,37 +503,50 @@ GimpImage * load_image ( GFile       *file,
                   alpha16_src = ( const uint16_t * ) ( y * avif->alphaRowBytes + avif->alphaPlane );
                   for ( x = 0; x < grayimg_width; x++ )
                     {
-                      if ( avif->depth == 10 ) //10 bit depth
-                        {
-                          tmpval16 = ( *gray16_src ) << 6;
-                          tmp16_alpha = ( *alpha16_src ) << 6;
-                        }
-                      else //12 bit depth
-                        {
-                          tmpval16 = ( *gray16_src ) << 4;
-                          tmp16_alpha = ( *alpha16_src ) << 4;
-                        }
+                      tmpval16 = *gray16_src;
+                      tmp16_alpha = *alpha16_src;
                       gray16_src++;
                       alpha16_src++;
 
-                      if ( avif->yuvRange == AVIF_RANGE_FULL )
+                      if ( avif->depth == 10 ) //10 bit depth
                         {
-                          *gray16_pixel = tmpval16;
-                        }
-                      else
-                        {
-                          *gray16_pixel = avifLimitedToFullY ( 16, tmpval16 );
-                        }
-                      gray16_pixel++;
+                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                            {
+                              tmpval16 = avifLimitedToFullY ( 10, tmpval16 );
+                            }
 
-                      if ( avif->alphaRange == AVIF_RANGE_FULL )
-                        {
-                          *gray16_pixel = tmp16_alpha;
+                          if ( avif->alphaRange == AVIF_RANGE_LIMITED )
+                            {
+                              tmp16_alpha = avifLimitedToFullY ( 10, tmp16_alpha );
+                            }
+
+                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 1023.0f ) * 65535.0f + 0.5f );
+                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                          gray16_pixel++;
+
+                          tmp_pixelval = ( int ) ( ( ( float ) tmp16_alpha / 1023.0f ) * 65535.0f + 0.5f );
+                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
                         }
-                      else
+                      else //12 bit depth
                         {
-                          *gray16_pixel = avifLimitedToFullY ( 16, tmp16_alpha );
+                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                            {
+                              tmpval16 = avifLimitedToFullY ( 12, tmpval16 );
+                            }
+
+                          if ( avif->alphaRange == AVIF_RANGE_LIMITED )
+                            {
+                              tmp16_alpha = avifLimitedToFullY ( 12, tmp16_alpha );
+                            }
+
+                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 4095.0f ) * 65535.0f + 0.5f );
+                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                          gray16_pixel++;
+
+                          tmp_pixelval = ( int ) ( ( ( float ) tmp16_alpha / 4095.0f ) * 65535.0f + 0.5f );
+                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
                         }
+
                       gray16_pixel++;
                     }
                 }
@@ -552,24 +566,29 @@ GimpImage * load_image ( GFile       *file,
                   gray16_src = ( const uint16_t * ) ( y * avif->yuvRowBytes[0] + avif->yuvPlanes[0] );
                   for ( x = 0; x < grayimg_width; x++ )
                     {
+                      tmpval16 = *gray16_src;
+                      gray16_src++;
+
                       if ( avif->depth == 10 ) //10 bit depth
                         {
-                          tmpval16 = ( *gray16_src ) << 6;
+                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                            {
+                              tmpval16 = avifLimitedToFullY ( 10, tmpval16 );
+                            }
+
+                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 1023.0f ) * 65535.0f + 0.5f );
                         }
                       else //12 bit depth
                         {
-                          tmpval16 = ( *gray16_src ) << 4;
-                        }
-                      gray16_src++;
+                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                            {
+                              tmpval16 = avifLimitedToFullY ( 12, tmpval16 );
+                            }
 
-                      if ( avif->yuvRange == AVIF_RANGE_FULL )
-                        {
-                          *gray16_pixel = tmpval16;
+                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 4095.0f ) * 65535.0f + 0.5f );
                         }
-                      else
-                        {
-                          *gray16_pixel = avifLimitedToFullY ( 16, tmpval16 );
-                        }
+
+                      *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
                       gray16_pixel++;
 
                     }

@@ -774,6 +774,7 @@ gboolean   save_layer ( GFile         *file,
         {
           const uint16_t  *graypixels_src = ( const uint16_t* ) pixels;
           uint16_t  *graypixels_dest;
+          int tmp_pixelval;
 
           if ( save_alpha )
             {
@@ -787,11 +788,13 @@ gboolean   save_layer ( GFile         *file,
                       alpha_dest      = ( uint16_t* ) ( j * avif->alphaRowBytes + avif->alphaPlane );
                       for ( i = 0; i < drawable_width; ++i )
                         {
-                          *graypixels_dest = ( *graypixels_src ) >> 6;
+                          tmp_pixelval = ( int ) ( ( ( float ) ( *graypixels_src ) / 65535.0f ) * 1023.0f + 0.5f );
+                          *graypixels_dest = CLAMP ( tmp_pixelval, 0, 1023 );
                           graypixels_dest++;
                           graypixels_src++;
 
-                          *alpha_dest = ( *graypixels_src ) >> 6;
+                          tmp_pixelval = ( int ) ( ( ( float ) ( *graypixels_src ) / 65535.0f ) * 1023.0f + 0.5f );
+                          *alpha_dest = CLAMP ( tmp_pixelval, 0, 1023 );
                           alpha_dest++;
                           graypixels_src++;
                         }
@@ -805,11 +808,13 @@ gboolean   save_layer ( GFile         *file,
                       alpha_dest      = ( uint16_t* ) ( j * avif->alphaRowBytes + avif->alphaPlane );
                       for ( i = 0; i < drawable_width; ++i )
                         {
-                          *graypixels_dest = ( *graypixels_src ) >> 4;
+                          tmp_pixelval = ( int ) ( ( ( float ) ( *graypixels_src ) / 65535.0f ) * 4095.0f + 0.5f );
+                          *graypixels_dest = CLAMP ( tmp_pixelval, 0, 4095 );
                           graypixels_dest++;
                           graypixels_src++;
 
-                          *alpha_dest = ( *graypixels_src ) >> 4;
+                          tmp_pixelval = ( int ) ( ( ( float ) ( *graypixels_src ) / 65535.0f ) * 4095.0f + 0.5f );
+                          *alpha_dest = CLAMP ( tmp_pixelval, 0, 4095 );
                           alpha_dest++;
                           graypixels_src++;
                         }
@@ -825,7 +830,8 @@ gboolean   save_layer ( GFile         *file,
                       graypixels_dest = ( uint16_t* ) ( j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0] );
                       for ( i = 0; i < drawable_width; ++i )
                         {
-                          *graypixels_dest = ( *graypixels_src ) >> 6;
+                          tmp_pixelval = ( int ) ( ( ( float ) ( *graypixels_src ) / 65535.0f ) * 1023.0f + 0.5f );
+                          *graypixels_dest = CLAMP ( tmp_pixelval, 0, 1023 );
                           graypixels_dest++;
                           graypixels_src++;
                         }
@@ -838,7 +844,8 @@ gboolean   save_layer ( GFile         *file,
                       graypixels_dest = ( uint16_t* ) ( j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0] );
                       for ( i = 0; i < drawable_width; ++i )
                         {
-                          *graypixels_dest = ( *graypixels_src ) >> 4;
+                          tmp_pixelval = ( int ) ( ( ( float ) ( *graypixels_src ) / 65535.0f ) * 4095.0f + 0.5f );
+                          *graypixels_dest = CLAMP ( tmp_pixelval, 0, 4095 );
                           graypixels_dest++;
                           graypixels_src++;
                         }
