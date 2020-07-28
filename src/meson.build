@@ -1,5 +1,3 @@
-project('file-avif', 'c', 'cpp',
-  license : 'GPL3')
 
 plugin_name = 'file-avif'
 
@@ -32,10 +30,10 @@ else
 
   avif_local_inc = include_directories('../ext/libavif/include')
   avif = declare_dependency( include_directories : avif_local_inc ,
-    link_args: ['../../ext/libavif/build/libavif.a', '../../ext/libavif/ext/aom/build.libavif/libaom.a' ] )
+    link_args: [meson.source_root()+'/ext/libavif/build/libavif.a', meson.source_root()+'/ext/libavif/ext/aom/build.libavif/libaom.a' ] )
   # we need to ensure that local dependencies were build
   # build_local_libaom_avif.sh script will buid libaom.a and libavif.a if they are missing
-  r = run_command('../ext/build_local_libaom_libavif.sh')
+  r = run_command(meson.source_root()+'/ext/build_local_libaom_libavif.sh')
   if r.returncode() != 0
     error(r.stderr())
   endif
@@ -48,5 +46,7 @@ executable(plugin_name,
     exiv2,
     gexiv2, gimpui,
     lcms
-  ]
+  ],
+  install: true,
+  install_dir: gimpplugindir / 'plug-ins' / plugin_name
 )

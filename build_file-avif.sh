@@ -13,8 +13,7 @@ fi
 RELATIVE_PATH=`dirname "$BASH_SOURCE"`
 cd "$RELATIVE_PATH"
 
-if ! [ -f src/builddir/file-avif ]; then
-  cd src
+if ! [ -f builddir/src/file-avif ]; then
   #we clean previous incomplete build
   if [ -d builddir ]; then
     rm -r builddir
@@ -24,15 +23,15 @@ if ! [ -f src/builddir/file-avif ]; then
   cd builddir
   ninja
 
-  if ! [ -f file-avif ]; then
+  if ! [ -f src/file-avif ]; then
     echo 'Error: we failed to compile file-avif!' >&2
     exit 1
   fi
 
-  cd ../..
+  cd ..
 fi
 
-cp src/builddir/file-avif .
+cp builddir/src/file-avif .
 
 echo 'file-avif build sucess.'
 echo 'Info how to install the plug-in for local users of GIMP 2.99:'
