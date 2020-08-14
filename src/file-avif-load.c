@@ -98,10 +98,10 @@ typedef enum clProfileCurveType
   CL_PCT_PARAMETRIC_REC709
 } clProfileCurveType;
 
-static cmsHPROFILE _create_lcms_profile_from_NCLX ( const char *description_suffix, const avifColorPrimaries colour_primaries,
-    const clProfileCurveType trctype, const float gamma, const int maxLuminance )
+static cmsHPROFILE _create_lcms_profile_from_NCLX (const char *description_suffix, const avifColorPrimaries colour_primaries,
+    const clProfileCurveType trctype, const float gamma, const int maxLuminance)
 {
-  float prim[8]; // outPrimaries: rX, rY, gX, gY, bX, bY, wX, wY
+  float prim[8]; /* outPrimaries: rX, rY, gX, gY, bX, bY, wX, wY */
   cmsCIExyYTRIPLE primaries;
   cmsCIExyY       whitepoint;
   cmsToneCurve   *curves[3];
@@ -116,249 +116,252 @@ static cmsHPROFILE _create_lcms_profile_from_NCLX ( const char *description_suff
   cmsFloat64Number rec709_parameters[5] =
   { 2.2, 1.0 / 1.099,  0.099 / 1.099, 1.0 / 4.5, 0.081 };
 
-  avifColorPrimariesGetValues ( colour_primaries, prim );
-  avifColorPrimariesFind ( prim, &prim_name );
+  avifColorPrimariesGetValues (colour_primaries, prim);
+  avifColorPrimariesFind (prim, &prim_name);
 
-  if ( ! prim_name )
+  if (! prim_name)
     prim_name = "";
 
   primaries.Red.x = prim[0];
   primaries.Red.y = prim[1];
-  primaries.Red.Y = 0.0f; // unused
+  primaries.Red.Y = 0.0f; /* unused */
   primaries.Green.x = prim[2];
   primaries.Green.y = prim[3];
-  primaries.Green.Y = 0.0f; // unused
+  primaries.Green.Y = 0.0f; /* unused */
   primaries.Blue.x = prim[4];
   primaries.Blue.y = prim[5];
-  primaries.Blue.Y = 0.0f; // unused
+  primaries.Blue.Y = 0.0f; /* unused */
   whitepoint.x = prim[6];
   whitepoint.y = prim[7];
   whitepoint.Y = 1.0f;
 
-  cmsMLU *mlu1 = cmsMLUalloc ( NULL, 1 );
-  cmsMLU *mlu2 = cmsMLUalloc ( NULL, 1 );
-  cmsMLU *mlu3 = cmsMLUalloc ( NULL, 1 );
-  cmsMLU *mlu4 = cmsMLUalloc ( NULL, 1 );
-
-  switch ( trctype )
+  switch (trctype)
     {
     case CL_PCT_GAMMA:
-      curves[0] = cmsBuildGamma ( NULL, gamma );
+      curves[0] = cmsBuildGamma (NULL, gamma);
       curves[1] = curves[0];
       curves[2] = curves[0];
-      profile = cmsCreateRGBProfile ( &whitepoint, &primaries, curves );
-      cmsFreeToneCurve ( curves[0] );
+      profile = cmsCreateRGBProfile (&whitepoint, &primaries, curves);
+      cmsFreeToneCurve (curves[0]);
       break;
     case CL_PCT_HLG:
-      profile = cmsCreateRGBProfile ( &whitepoint, &primaries, NULL );
-      cmsWriteRawTag ( profile, cmsSigRedTRCTag, hlgCurveBinaryData, hlgCurveBinarySize );
-      cmsLinkTag ( profile, cmsSigGreenTRCTag, cmsSigRedTRCTag );
-      cmsLinkTag ( profile, cmsSigBlueTRCTag, cmsSigRedTRCTag );
+      profile = cmsCreateRGBProfile (&whitepoint, &primaries, NULL);
+      cmsWriteRawTag (profile, cmsSigRedTRCTag, hlgCurveBinaryData, hlgCurveBinarySize);
+      cmsLinkTag (profile, cmsSigGreenTRCTag, cmsSigRedTRCTag);
+      cmsLinkTag (profile, cmsSigBlueTRCTag, cmsSigRedTRCTag);
       break;
     case CL_PCT_PQ:
-      profile = cmsCreateRGBProfile ( &whitepoint, &primaries, NULL );
-      cmsWriteRawTag ( profile, cmsSigRedTRCTag, pqCurveBinaryData, pqCurveBinarySize );
-      cmsLinkTag ( profile, cmsSigGreenTRCTag, cmsSigRedTRCTag );
-      cmsLinkTag ( profile, cmsSigBlueTRCTag, cmsSigRedTRCTag );
+      profile = cmsCreateRGBProfile (&whitepoint, &primaries, NULL);
+      cmsWriteRawTag (profile, cmsSigRedTRCTag, pqCurveBinaryData, pqCurveBinarySize);
+      cmsLinkTag (profile, cmsSigGreenTRCTag, cmsSigRedTRCTag);
+      cmsLinkTag (profile, cmsSigBlueTRCTag, cmsSigRedTRCTag);
       break;
     case CL_PCT_PARAMETRIC_SRGB:
-      curves[0] = cmsBuildParametricToneCurve ( NULL, 4, srgb_parameters );
+      curves[0] = cmsBuildParametricToneCurve (NULL, 4, srgb_parameters);
       curves[1] = curves[0];
       curves[2] = curves[0];
-      profile = cmsCreateRGBProfile ( &whitepoint, &primaries, curves );
-      cmsFreeToneCurve ( curves[0] );
+      profile = cmsCreateRGBProfile (&whitepoint, &primaries, curves);
+      cmsFreeToneCurve (curves[0]);
       break;
     case CL_PCT_PARAMETRIC_REC709:
-      curves[0] = cmsBuildParametricToneCurve ( NULL, 4, rec709_parameters );
+      curves[0] = cmsBuildParametricToneCurve (NULL, 4, rec709_parameters);
       curves[1] = curves[0];
       curves[2] = curves[0];
-      profile = cmsCreateRGBProfile ( &whitepoint, &primaries, curves );
-      cmsFreeToneCurve ( curves[0] );
+      profile = cmsCreateRGBProfile (&whitepoint, &primaries, curves);
+      cmsFreeToneCurve (curves[0]);
       break;
     default:
       profile = NULL;
     }
 
-  if ( profile )
+  if (profile)
     {
-      if ( maxLuminance > 0 )
+      cmsMLU *mlu1 = cmsMLUalloc (NULL, 1);
+      cmsMLU *mlu2 = cmsMLUalloc (NULL, 1);
+      cmsMLU *mlu3 = cmsMLUalloc (NULL, 1);
+      cmsMLU *mlu4 = cmsMLUalloc (NULL, 1);
+
+      if (maxLuminance > 0)
         {
           lumi.X = 0.0f;
-          lumi.Y = ( cmsFloat64Number ) maxLuminance;
+          lumi.Y = (cmsFloat64Number) maxLuminance;
           lumi.Z = 0.0f;
-          cmsWriteTag ( profile, cmsSigLuminanceTag, &lumi );
+          cmsWriteTag (profile, cmsSigLuminanceTag, &lumi);
         }
 
-      cmsSetHeaderFlags ( profile, cmsEmbeddedProfileTrue | cmsUseAnywhere );
+      cmsSetHeaderFlags (profile, cmsEmbeddedProfileTrue | cmsUseAnywhere);
 
-      cmsMLUsetASCII ( mlu1, "en", "US", "Public Domain" );
-      cmsWriteTag ( profile, cmsSigCopyrightTag, mlu1 );
+      cmsMLUsetASCII (mlu1, "en", "US", "Public Domain");
+      cmsWriteTag (profile, cmsSigCopyrightTag, mlu1);
 
-      description = g_strdup_printf ( "%s %s", prim_name, description_suffix );
+      description = g_strdup_printf ("%s %s", prim_name, description_suffix);
 
-      cmsMLUsetASCII ( mlu2, "en", "US", description );
-      cmsWriteTag ( profile, cmsSigProfileDescriptionTag, mlu2 );
+      cmsMLUsetASCII (mlu2, "en", "US", description);
+      cmsWriteTag (profile, cmsSigProfileDescriptionTag, mlu2);
 
-      cmsMLUsetASCII ( mlu3, "en", "US", description );
-      cmsWriteTag ( profile, cmsSigDeviceModelDescTag, mlu3 );
+      cmsMLUsetASCII (mlu3, "en", "US", description);
+      cmsWriteTag (profile, cmsSigDeviceModelDescTag, mlu3);
 
-      g_free ( description );
+      g_free (description);
 
-      cmsMLUsetASCII ( mlu4, "en", "US", "Gimp AVIF plug-in" );
-      cmsWriteTag ( profile, cmsSigDeviceMfgDescTag, mlu4 );
+      cmsMLUsetASCII (mlu4, "en", "US", "Gimp AVIF plug-in");
+      cmsWriteTag (profile, cmsSigDeviceMfgDescTag, mlu4);
+
+      cmsMLUfree (mlu1);
+      cmsMLUfree (mlu2);
+      cmsMLUfree (mlu3);
+      cmsMLUfree (mlu4);
     }
-
-  cmsMLUfree ( mlu1 );
-  cmsMLUfree ( mlu2 );
-  cmsMLUfree ( mlu3 );
-  cmsMLUfree ( mlu4 );
 
   return profile;
 }
 
-GimpImage * load_image ( GFile       *file,
-                         gboolean     interactive,
-                         GError     **error )
+GimpImage *load_image (GFile       *file,
+                       gboolean     interactive,
+                       GError     **error)
 {
-  gchar            *filename;
+  gchar            *filename = g_file_get_path (file);
   GimpImage        *image;
   GimpLayer        *layer;
   GeglBuffer       *buffer;
 
-  gboolean         loadalpha;
-  gboolean         loadgray;
-  gboolean         loadlinear;
+  gboolean          loadalpha;
+  gboolean          loadgray;
+  gboolean          loadlinear;
 
   GimpColorProfile *profile = NULL;
   GimpMetadata     *metadata = NULL;
 
-  filename = g_file_get_path ( file );
+  FILE *inputFile = g_fopen (filename, "rb");
 
-  FILE * inputFile = g_fopen ( filename, "rb" );
-  if ( !inputFile )
+  size_t            inputFileSize;
+  avifRWData        raw = AVIF_DATA_EMPTY;
+  avifDecoder      *decoder = NULL;
+  avifResult        decodeResult;
+  avifImage        *avif;
+
+  if (!inputFile)
     {
-      g_message ( "Cannot open file for read: %s\n", filename );
-      g_free ( filename );
+      g_message ("Cannot open file for read: %s\n", filename);
+      g_free (filename);
       return NULL;
     }
-  fseek ( inputFile, 0, SEEK_END );
-  size_t inputFileSize = ftell ( inputFile );
-  fseek ( inputFile, 0, SEEK_SET );
+  fseek (inputFile, 0, SEEK_END);
+  inputFileSize = ftell (inputFile);
+  fseek (inputFile, 0, SEEK_SET);
 
-  if ( inputFileSize < 1 )
+  if (inputFileSize < 1)
     {
-      g_message ( "File too small: %s\n", filename );
-      fclose ( inputFile );
-      g_free ( filename );
-      return NULL;
-    }
-
-  avifRWData raw = AVIF_DATA_EMPTY;
-  avifRWDataRealloc ( &raw, inputFileSize );
-  if ( fread ( raw.data, 1, inputFileSize, inputFile ) != inputFileSize )
-    {
-      g_message ( "Failed to read %zu bytes: %s\n", inputFileSize, filename );
-      fclose ( inputFile );
-      avifRWDataFree ( &raw );
-
-      g_free ( filename );
+      g_message ("File too small: %s\n", filename);
+      fclose (inputFile);
+      g_free (filename);
       return NULL;
     }
 
-  fclose ( inputFile );
+  avifRWDataRealloc (&raw, inputFileSize);
+  if (fread (raw.data, 1, inputFileSize, inputFile) != inputFileSize)
+    {
+      g_message ("Failed to read %zu bytes: %s\n", inputFileSize, filename);
+      fclose (inputFile);
+      avifRWDataFree (&raw);
+
+      g_free (filename);
+      return NULL;
+    }
+
+  fclose (inputFile);
   inputFile = NULL;
 
-  if ( avifPeekCompatibleFileType ( ( avifROData * ) &raw ) == AVIF_FALSE )
+  if (avifPeekCompatibleFileType ( (avifROData *) &raw) == AVIF_FALSE)
     {
-      g_message ( "File %s is probably not in AVIF format!\n", filename );
-      avifRWDataFree ( &raw );
-      g_free ( filename );
+      g_message ("File %s is probably not in AVIF format!\n", filename);
+      avifRWDataFree (&raw);
+      g_free (filename);
       return NULL;
     }
 
-  avifDecoder * decoder = avifDecoderCreate();
-  avifResult decodeResult;
+  decoder = avifDecoderCreate();
 
-  decodeResult = avifDecoderParse ( decoder, ( avifROData * ) &raw );
-  if ( decodeResult != AVIF_RESULT_OK )
+  decodeResult = avifDecoderParse (decoder, (avifROData *) &raw);
+  if (decodeResult != AVIF_RESULT_OK)
     {
-      g_message ( "ERROR: Failed to parse input: %s\n", avifResultToString ( decodeResult ) );
+      g_message ("ERROR: Failed to parse input: %s\n", avifResultToString (decodeResult));
 
-      avifDecoderDestroy ( decoder );
-      avifRWDataFree ( &raw );
-      g_free ( filename );
+      avifDecoderDestroy (decoder);
+      avifRWDataFree (&raw);
+      g_free (filename);
       return NULL;
     }
 
-  decodeResult = avifDecoderNextImage ( decoder );
-  if ( decodeResult != AVIF_RESULT_OK )
+  decodeResult = avifDecoderNextImage (decoder);
+  if (decodeResult != AVIF_RESULT_OK)
     {
-      g_message ( "ERROR: Failed to decode image: %s\n", avifResultToString ( decodeResult ) );
+      g_message ("ERROR: Failed to decode image: %s\n", avifResultToString (decodeResult));
 
-      avifDecoderDestroy ( decoder );
-      avifRWDataFree ( &raw );
-      g_free ( filename );
+      avifDecoderDestroy (decoder);
+      avifRWDataFree (&raw);
+      g_free (filename);
       return NULL;
     }
 
-  avifImage * avif = decoder->image;
+  avif = decoder->image;
 
-  if ( avif->exif.size > 0 || avif->xmp.size > 0 )
+  if (avif->exif.size > 0 || avif->xmp.size > 0)
     {
       metadata = gimp_metadata_new ();
 
-      if ( avif->exif.size > 0 )
+      if (avif->exif.size > 0)
         {
-          GExiv2Metadata *exif_metadata = GEXIV2_METADATA ( metadata );
-          if ( ! gexiv2_metadata_open_buf ( exif_metadata, avif->exif.data, avif->exif.size, error ) )
+          GExiv2Metadata *exif_metadata = GEXIV2_METADATA (metadata);
+          if (! gexiv2_metadata_open_buf (exif_metadata, avif->exif.data, avif->exif.size, error))
             {
-              g_printerr ( "%s: Failed to set EXIF metadata: %s\n", G_STRFUNC, ( *error )->message );
-              g_clear_error ( error );
+              g_printerr ("%s: Failed to set EXIF metadata: %s\n", G_STRFUNC, (*error)->message);
+              g_clear_error (error);
             }
         }
 
-      if ( avif->xmp.size > 0 )
+      if (avif->xmp.size > 0)
         {
-          if ( ! gimp_metadata_set_from_xmp ( metadata, avif->xmp.data, avif->xmp.size, error ) )
+          if (! gimp_metadata_set_from_xmp (metadata, avif->xmp.data, avif->xmp.size, error))
             {
-              g_printerr ( "%s: Failed to set XMP metadata: %s\n", G_STRFUNC, ( *error )->message );
-              g_clear_error ( error );
+              g_printerr ("%s: Failed to set XMP metadata: %s\n", G_STRFUNC, (*error)->message);
+              g_clear_error (error);
             }
         }
     }
 
 
-  if ( avif->icc.data && ( avif->icc.size > 0 ) ) //load profile from ICC
+  if (avif->icc.data && (avif->icc.size > 0))     /* load profile from ICC */
     {
-      profile = gimp_color_profile_new_from_icc_profile ( avif->icc.data, avif->icc.size, error );
-      if ( profile )
+      profile = gimp_color_profile_new_from_icc_profile (avif->icc.data, avif->icc.size, error);
+      if (profile)
         {
-          loadlinear = gimp_color_profile_is_linear ( profile );
-          if ( avif->matrixCoefficients != 0 )
+          loadlinear = gimp_color_profile_is_linear (profile);
+          if (avif->matrixCoefficients != 0)
             {
-              loadgray = gimp_color_profile_is_gray ( profile );
+              loadgray = gimp_color_profile_is_gray (profile);
             }
           else
             {
-              //AVIF_MATRIX_COEFFICIENTS_IDENTITY - image is RGBA
+              /* AVIF_MATRIX_COEFFICIENTS_IDENTITY - image is RGBA */
               loadgray = FALSE;
             }
         }
-      else //error
+      else /* error */
         {
-          g_printerr ( "%s: Failed to read ICC profile: %s\n", G_STRFUNC, ( *error )->message );
-          g_clear_error ( error );
+          g_printerr ("%s: Failed to read ICC profile: %s\n", G_STRFUNC, (*error)->message);
+          g_clear_error (error);
 
           loadgray = FALSE;
           loadlinear = FALSE;
         }
     }
-  else //load profile from CICP/NCLX information
+  else /* load profile from CICP/NCLX information */
     {
-      if ( avif->yuvFormat == AVIF_PIXEL_FORMAT_YUV400 ) //creating gray profile
+      if (avif->yuvFormat == AVIF_PIXEL_FORMAT_YUV400)   /* creating gray profile */
         {
           loadgray = TRUE;
-          if ( avif->transferCharacteristics == 8 ) //AVIF_TRANSFER_CHARACTERISTICS_LINEAR
+          if (avif->transferCharacteristics == 8)   /* AVIF_TRANSFER_CHARACTERISTICS_LINEAR */
             {
               profile = gimp_color_profile_new_d65_gray_linear ();
               loadlinear = TRUE;
@@ -369,89 +372,88 @@ GimpImage * load_image ( GFile       *file,
               loadlinear = FALSE;
             }
         }
-      else //creating color profile
+      else /* creating color profile */
         {
+          cmsHPROFILE lcms_profile = NULL;
           avifColorPrimaries primaries_to_load;
           avifTransferCharacteristics trc_to_load;
 
           loadgray = FALSE;
           loadlinear = FALSE;
 
-          if ( ( avif->colorPrimaries == 2 /* AVIF_COLOR_PRIMARIES_UNSPECIFIED */ ) ||
-               ( avif->colorPrimaries == 0 /* AVIF_COLOR_PRIMARIES_UNKNOWN */ ) )
+          if ( (avif->colorPrimaries == 2 /* AVIF_COLOR_PRIMARIES_UNSPECIFIED */) ||
+               (avif->colorPrimaries == 0 /* AVIF_COLOR_PRIMARIES_UNKNOWN */))
             {
-              primaries_to_load = ( avifColorPrimaries ) 1; // AVIF_COLOR_PRIMARIES_BT709
+              primaries_to_load = (avifColorPrimaries) 1;   /* AVIF_COLOR_PRIMARIES_BT709 */
             }
           else
             {
               primaries_to_load = avif->colorPrimaries;
             }
 
-          if ( ( avif->transferCharacteristics == 2 /* AVIF_TRANSFER_CHARACTERISTICS_UNSPECIFIED */ ) ||
-               ( avif->transferCharacteristics == 0 /* AVIF_TRANSFER_CHARACTERISTICS_UNKNOWN */ ) )
+          if ( (avif->transferCharacteristics == 2 /* AVIF_TRANSFER_CHARACTERISTICS_UNSPECIFIED */) ||
+               (avif->transferCharacteristics == 0 /* AVIF_TRANSFER_CHARACTERISTICS_UNKNOWN */))
             {
-              trc_to_load = ( avifTransferCharacteristics ) 13; // AVIF_TRANSFER_CHARACTERISTICS_SRGB
+              trc_to_load = (avifTransferCharacteristics) 13;   /* AVIF_TRANSFER_CHARACTERISTICS_SRGB */
             }
           else
             {
               trc_to_load = avif->transferCharacteristics;
             }
 
-          cmsHPROFILE lcms_profile = NULL;
-
-          switch ( trc_to_load )
+          switch (trc_to_load)
             {
             /* AVIF_TRANSFER_CHARACTERISTICS_HLG */
             case 18:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "HLG RGB", primaries_to_load, CL_PCT_HLG, 0, 0 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("HLG RGB", primaries_to_load, CL_PCT_HLG, 0, 0);
               break;
             /* AVIF_TRANSFER_CHARACTERISTICS_SMPTE2084 */
             case 16:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "PQ RGB", primaries_to_load, CL_PCT_PQ, 0, 10000 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("PQ RGB", primaries_to_load, CL_PCT_PQ, 0, 10000);
               break;
             /* AVIF_TRANSFER_CHARACTERISTICS_BT470M */
             case 4:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "Gamma2.2 RGB", primaries_to_load, CL_PCT_GAMMA, 2.2f, 0 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("Gamma2.2 RGB", primaries_to_load, CL_PCT_GAMMA, 2.2f, 0);
               break;
             /* AVIF_TRANSFER_CHARACTERISTICS_BT470BG */
             case 5:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "Gamma2.8 RGB", primaries_to_load, CL_PCT_GAMMA, 2.8f, 0 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("Gamma2.8 RGB", primaries_to_load, CL_PCT_GAMMA, 2.8f, 0);
               break;
             /* AVIF_TRANSFER_CHARACTERISTICS_LINEAR */
             case 8:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "linear RGB", primaries_to_load, CL_PCT_GAMMA, 1.0f, 0 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("linear RGB", primaries_to_load, CL_PCT_GAMMA, 1.0f, 0);
               loadlinear = TRUE;
               break;
             /* AVIF_TRANSFER_CHARACTERISTICS_SRGB */
             case 13:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "sRGB-TRC RGB", primaries_to_load, CL_PCT_PARAMETRIC_SRGB, 0, 0 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("sRGB-TRC RGB", primaries_to_load, CL_PCT_PARAMETRIC_SRGB, 0, 0);
               break;
             /* AVIF_TRANSFER_CHARACTERISTICS_BT709 */
             case 1:
-              lcms_profile = _create_lcms_profile_from_NCLX ( "Rec709 RGB", primaries_to_load, CL_PCT_PARAMETRIC_REC709, 0, 0 );
+              lcms_profile = _create_lcms_profile_from_NCLX ("Rec709 RGB", primaries_to_load, CL_PCT_PARAMETRIC_REC709, 0, 0);
               break;
             default:
-              //missing implementation, showing a debug message so far
-              g_message ( "CICP colorPrimaries: %d, transferCharacteristics: %d\nPlease, report file to the plug-in author.",avif->colorPrimaries,avif->transferCharacteristics );
+              /* missing implementation, showing a debug message so far */
+              g_message ("CICP colorPrimaries: %d, transferCharacteristics: %d\nPlease, report file to the plug-in author.", avif->colorPrimaries, avif->transferCharacteristics);
               profile = NULL;
               lcms_profile = NULL;
               break;
             }
 
-          if ( lcms_profile )
+          if (lcms_profile)
             {
-              profile = gimp_color_profile_new_from_lcms_profile ( lcms_profile, error );
-              if ( ! profile )
+              profile = gimp_color_profile_new_from_lcms_profile (lcms_profile, error);
+              if (! profile)
                 {
-                  g_printerr ( "%s: gimp_color_profile_new_from_lcms_profile call failed: %s\n", G_STRFUNC, ( *error )->message );
-                  g_clear_error ( error );
+                  g_printerr ("%s: gimp_color_profile_new_from_lcms_profile call failed: %s\n", G_STRFUNC, (*error)->message);
+                  g_clear_error (error);
                 }
-              cmsCloseProfile ( lcms_profile );
+              cmsCloseProfile (lcms_profile);
             }
         }
     }
 
-  if ( avif->alphaPlane )
+  if (avif->alphaPlane)
     {
       loadalpha = TRUE;
     }
@@ -460,256 +462,256 @@ GimpImage * load_image ( GFile       *file,
       loadalpha = FALSE;
     }
 
-  if ( loadgray ) //grayscale
+  if (loadgray)   /* grayscale */
     {
       const gint grayimg_width = avif->width;
       const gint grayimg_height = avif->height;
-      gint x,y;
+      gint x, y;
       gpointer pixels;
 
-      if ( avifImageUsesU16 ( avif ) ) //10 and 12 bit depth import
+      if (avifImageUsesU16 (avif))     /* 10 and 12 bit depth import */
         {
           uint16_t *gray16_pixel;
           const uint16_t *alpha16_src;
           const uint16_t *gray16_src;
-          uint16_t tmpval16,tmp16_alpha;
+          uint16_t tmpval16, tmp16_alpha;
           int tmp_pixelval;
 
-          if ( loadlinear )
+          if (loadlinear)
             {
-              image = gimp_image_new_with_precision ( grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U16_LINEAR );
+              image = gimp_image_new_with_precision (grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U16_LINEAR);
             }
           else
             {
-              image = gimp_image_new_with_precision ( grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U16_NON_LINEAR );
+              image = gimp_image_new_with_precision (grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U16_NON_LINEAR);
             }
 
-          if ( profile )
+          if (profile)
             {
-              if ( gimp_color_profile_is_gray ( profile ) )
+              if (gimp_color_profile_is_gray (profile))
                 {
-                  gimp_image_set_color_profile ( image, profile );
+                  gimp_image_set_color_profile (image, profile);
                 }
             }
 
-          if ( loadalpha )
+          if (loadalpha)
             {
-              pixels = g_malloc_n ( grayimg_height, grayimg_width * 4 );
+              pixels = g_malloc_n (grayimg_height, grayimg_width * 4);
 
               gray16_pixel = pixels;
-              for ( y = 0; y < grayimg_height; y++ )
+              for (y = 0; y < grayimg_height; y++)
                 {
-                  gray16_src = ( const uint16_t * ) ( y * avif->yuvRowBytes[0] + avif->yuvPlanes[0] );
-                  alpha16_src = ( const uint16_t * ) ( y * avif->alphaRowBytes + avif->alphaPlane );
-                  for ( x = 0; x < grayimg_width; x++ )
+                  gray16_src = (const uint16_t *) (y * avif->yuvRowBytes[0] + avif->yuvPlanes[0]);
+                  alpha16_src = (const uint16_t *) (y * avif->alphaRowBytes + avif->alphaPlane);
+                  for (x = 0; x < grayimg_width; x++)
                     {
                       tmpval16 = *gray16_src;
                       tmp16_alpha = *alpha16_src;
                       gray16_src++;
                       alpha16_src++;
 
-                      if ( avif->depth == 10 ) //10 bit depth
+                      if (avif->depth == 10)   /* 10 bit depth */
                         {
-                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                          if (avif->yuvRange == AVIF_RANGE_LIMITED)
                             {
-                              tmpval16 = avifLimitedToFullY ( 10, tmpval16 );
+                              tmpval16 = avifLimitedToFullY (10, tmpval16);
                             }
 
-                          if ( avif->alphaRange == AVIF_RANGE_LIMITED )
+                          if (avif->alphaRange == AVIF_RANGE_LIMITED)
                             {
-                              tmp16_alpha = avifLimitedToFullY ( 10, tmp16_alpha );
+                              tmp16_alpha = avifLimitedToFullY (10, tmp16_alpha);
                             }
 
-                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 1023.0f ) * 65535.0f + 0.5f );
-                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                          tmp_pixelval = (int) ( ( (float) tmpval16 / 1023.0f) * 65535.0f + 0.5f);
+                          *gray16_pixel = CLAMP (tmp_pixelval, 0, 65535);
                           gray16_pixel++;
 
-                          tmp_pixelval = ( int ) ( ( ( float ) tmp16_alpha / 1023.0f ) * 65535.0f + 0.5f );
-                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                          tmp_pixelval = (int) ( ( (float) tmp16_alpha / 1023.0f) * 65535.0f + 0.5f);
+                          *gray16_pixel = CLAMP (tmp_pixelval, 0, 65535);
                         }
-                      else //12 bit depth
+                      else /* 12 bit depth */
                         {
-                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                          if (avif->yuvRange == AVIF_RANGE_LIMITED)
                             {
-                              tmpval16 = avifLimitedToFullY ( 12, tmpval16 );
+                              tmpval16 = avifLimitedToFullY (12, tmpval16);
                             }
 
-                          if ( avif->alphaRange == AVIF_RANGE_LIMITED )
+                          if (avif->alphaRange == AVIF_RANGE_LIMITED)
                             {
-                              tmp16_alpha = avifLimitedToFullY ( 12, tmp16_alpha );
+                              tmp16_alpha = avifLimitedToFullY (12, tmp16_alpha);
                             }
 
-                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 4095.0f ) * 65535.0f + 0.5f );
-                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                          tmp_pixelval = (int) ( ( (float) tmpval16 / 4095.0f) * 65535.0f + 0.5f);
+                          *gray16_pixel = CLAMP (tmp_pixelval, 0, 65535);
                           gray16_pixel++;
 
-                          tmp_pixelval = ( int ) ( ( ( float ) tmp16_alpha / 4095.0f ) * 65535.0f + 0.5f );
-                          *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                          tmp_pixelval = (int) ( ( (float) tmp16_alpha / 4095.0f) * 65535.0f + 0.5f);
+                          *gray16_pixel = CLAMP (tmp_pixelval, 0, 65535);
                         }
 
                       gray16_pixel++;
                     }
                 }
 
-              layer = gimp_layer_new ( image, "Background",
-                                       grayimg_width, grayimg_height,
-                                       GIMP_GRAYA_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      grayimg_width, grayimg_height,
+                                      GIMP_GRAYA_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
-          else //no alpha
+          else /* no alpha */
             {
-              pixels = g_malloc_n ( grayimg_height, grayimg_width * 2 );
+              pixels = g_malloc_n (grayimg_height, grayimg_width * 2);
 
               gray16_pixel = pixels;
-              for ( y = 0; y < grayimg_height; y++ )
+              for (y = 0; y < grayimg_height; y++)
                 {
-                  gray16_src = ( const uint16_t * ) ( y * avif->yuvRowBytes[0] + avif->yuvPlanes[0] );
-                  for ( x = 0; x < grayimg_width; x++ )
+                  gray16_src = (const uint16_t *) (y * avif->yuvRowBytes[0] + avif->yuvPlanes[0]);
+                  for (x = 0; x < grayimg_width; x++)
                     {
                       tmpval16 = *gray16_src;
                       gray16_src++;
 
-                      if ( avif->depth == 10 ) //10 bit depth
+                      if (avif->depth == 10)   /* 10 bit depth */
                         {
-                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                          if (avif->yuvRange == AVIF_RANGE_LIMITED)
                             {
-                              tmpval16 = avifLimitedToFullY ( 10, tmpval16 );
+                              tmpval16 = avifLimitedToFullY (10, tmpval16);
                             }
 
-                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 1023.0f ) * 65535.0f + 0.5f );
+                          tmp_pixelval = (int) ( ( (float) tmpval16 / 1023.0f) * 65535.0f + 0.5f);
                         }
-                      else //12 bit depth
+                      else /* 12 bit depth */
                         {
-                          if ( avif->yuvRange == AVIF_RANGE_LIMITED )
+                          if (avif->yuvRange == AVIF_RANGE_LIMITED)
                             {
-                              tmpval16 = avifLimitedToFullY ( 12, tmpval16 );
+                              tmpval16 = avifLimitedToFullY (12, tmpval16);
                             }
 
-                          tmp_pixelval = ( int ) ( ( ( float ) tmpval16 / 4095.0f ) * 65535.0f + 0.5f );
+                          tmp_pixelval = (int) ( ( (float) tmpval16 / 4095.0f) * 65535.0f + 0.5f);
                         }
 
-                      *gray16_pixel = CLAMP ( tmp_pixelval, 0, 65535 );
+                      *gray16_pixel = CLAMP (tmp_pixelval, 0, 65535);
                       gray16_pixel++;
 
                     }
                 }
 
-              layer = gimp_layer_new ( image, "Background",
-                                       grayimg_width, grayimg_height,
-                                       GIMP_GRAY_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      grayimg_width, grayimg_height,
+                                      GIMP_GRAY_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
         }
-      else //8 bit depth import
+      else /* 8 bit depth import */
         {
           uint8_t *gray8_pixel;
           const uint8_t *alpha8_src;
           const uint8_t *gray8_src;
 
-          if ( loadlinear )
+          if (loadlinear)
             {
-              image = gimp_image_new_with_precision ( grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U8_LINEAR );
+              image = gimp_image_new_with_precision (grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U8_LINEAR);
             }
           else
             {
-              image = gimp_image_new_with_precision ( grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U8_NON_LINEAR );
+              image = gimp_image_new_with_precision (grayimg_width, grayimg_height, GIMP_GRAY, GIMP_PRECISION_U8_NON_LINEAR);
             }
 
-          if ( profile )
+          if (profile)
             {
-              if ( gimp_color_profile_is_gray ( profile ) )
+              if (gimp_color_profile_is_gray (profile))
                 {
-                  gimp_image_set_color_profile ( image, profile );
+                  gimp_image_set_color_profile (image, profile);
                 }
             }
 
-          if ( loadalpha )
+          if (loadalpha)
             {
-              pixels = g_malloc_n ( grayimg_height, grayimg_width * 2 );
+              pixels = g_malloc_n (grayimg_height, grayimg_width * 2);
 
               gray8_pixel = pixels;
-              for ( y = 0; y < grayimg_height; y++ )
+              for (y = 0; y < grayimg_height; y++)
                 {
                   gray8_src =  y * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
                   alpha8_src =  y * avif->alphaRowBytes + avif->alphaPlane;
-                  for ( x = 0; x < grayimg_width; x++ )
+                  for (x = 0; x < grayimg_width; x++)
                     {
-                      if ( avif->yuvRange == AVIF_RANGE_FULL )
+                      if (avif->yuvRange == AVIF_RANGE_FULL)
                         {
                           *gray8_pixel = *gray8_src;
                         }
                       else
                         {
-                          *gray8_pixel = avifLimitedToFullY ( 8, *gray8_src );
+                          *gray8_pixel = avifLimitedToFullY (8, *gray8_src);
                         }
                       gray8_pixel++;
                       gray8_src++;
 
-                      if ( avif->alphaRange == AVIF_RANGE_FULL )
+                      if (avif->alphaRange == AVIF_RANGE_FULL)
                         {
                           *gray8_pixel = *alpha8_src;
                         }
                       else
                         {
-                          *gray8_pixel = avifLimitedToFullY ( 8, *alpha8_src );
+                          *gray8_pixel = avifLimitedToFullY (8, *alpha8_src);
                         }
                       gray8_pixel++;
                       alpha8_src++;
                     }
                 }
 
-              layer = gimp_layer_new ( image, "Background",
-                                       grayimg_width, grayimg_height,
-                                       GIMP_GRAYA_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      grayimg_width, grayimg_height,
+                                      GIMP_GRAYA_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
-          else //no alpha
+          else /* no alpha */
             {
-              pixels = g_malloc_n ( grayimg_height, grayimg_width );
+              pixels = g_malloc_n (grayimg_height, grayimg_width);
 
               gray8_pixel = pixels;
-              for ( y = 0; y < grayimg_height; y++ )
+              for (y = 0; y < grayimg_height; y++)
                 {
                   gray8_src =  y * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
-                  for ( x = 0; x < grayimg_width; x++ )
+                  for (x = 0; x < grayimg_width; x++)
                     {
-                      if ( avif->yuvRange == AVIF_RANGE_FULL )
+                      if (avif->yuvRange == AVIF_RANGE_FULL)
                         {
                           *gray8_pixel = *gray8_src;
                         }
                       else
                         {
-                          *gray8_pixel = avifLimitedToFullY ( 8, *gray8_src );
+                          *gray8_pixel = avifLimitedToFullY (8, *gray8_src);
                         }
                       gray8_pixel++;
                       gray8_src++;
                     }
                 }
 
-              layer = gimp_layer_new ( image, "Background",
-                                       grayimg_width, grayimg_height,
-                                       GIMP_GRAY_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      grayimg_width, grayimg_height,
+                                      GIMP_GRAY_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
         }
 
-      gimp_image_insert_layer ( image, layer, NULL, 0 );
+      gimp_image_insert_layer (image, layer, NULL, 0);
 
-      buffer = gimp_drawable_get_buffer ( GIMP_DRAWABLE ( layer ) );
+      buffer = gimp_drawable_get_buffer (GIMP_DRAWABLE (layer));
 
-      gegl_buffer_set ( buffer, GEGL_RECTANGLE ( 0, 0, grayimg_width, grayimg_height ), 0,
-                        NULL, pixels, GEGL_AUTO_ROWSTRIDE );
+      gegl_buffer_set (buffer, GEGL_RECTANGLE (0, 0, grayimg_width, grayimg_height), 0,
+                       NULL, pixels, GEGL_AUTO_ROWSTRIDE);
 
-      g_object_unref ( buffer );
-      g_free ( pixels );
+      g_object_unref (buffer);
+      g_free (pixels);
 
     }
-  else //loading colors, YUV to RGB conversion
+  else /* loading colors, YUV to RGB conversion */
     {
       avifRGBImage rgb;
-      avifRGBImageSetDefaults ( &rgb, avif );
+      avifRGBImageSetDefaults (&rgb, avif);
 
-      if ( loadalpha )
+      if (loadalpha)
         {
           rgb.format = AVIF_RGB_FORMAT_RGBA;
         }
@@ -720,224 +722,226 @@ GimpImage * load_image ( GFile       *file,
 
 
 
-      if ( avifImageUsesU16 ( avif ) ) //10 and 12 bit depth import
+      if (avifImageUsesU16 (avif))     /* 10 and 12 bit depth import */
         {
 
-          if ( loadlinear )
+          if (loadlinear)
             {
-              image = gimp_image_new_with_precision ( rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U16_LINEAR );
+              image = gimp_image_new_with_precision (rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U16_LINEAR);
             }
           else
             {
-              image = gimp_image_new_with_precision ( rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U16_NON_LINEAR );
+              image = gimp_image_new_with_precision (rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U16_NON_LINEAR);
             }
 
-          if ( profile )
+          if (profile)
             {
-              if ( gimp_color_profile_is_rgb ( profile ) )
+              if (gimp_color_profile_is_rgb (profile))
                 {
-                  gimp_image_set_color_profile ( image, profile );
+                  gimp_image_set_color_profile (image, profile);
                 }
             }
 
           rgb.depth = 16;
-          if ( loadalpha ) //RGBA
+          if (loadalpha)   /* RGBA */
             {
               rgb.rowBytes = rgb.width * 8;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
+              rgb.pixels = g_malloc_n (rgb.height, rgb.rowBytes);
 
-              decodeResult = avifImageYUVToRGB ( avif, &rgb );
+              decodeResult = avifImageYUVToRGB (avif, &rgb);
 
-              layer = gimp_layer_new ( image, "Background",
-                                       rgb.width, rgb.height,
-                                       GIMP_RGBA_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      rgb.width, rgb.height,
+                                      GIMP_RGBA_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
-          else //RGB
+          else /* RGB */
             {
               rgb.rowBytes = rgb.width * 6;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
+              rgb.pixels = g_malloc_n (rgb.height, rgb.rowBytes);
 
-              decodeResult = avifImageYUVToRGB ( avif, &rgb );
+              decodeResult = avifImageYUVToRGB (avif, &rgb);
 
-              layer = gimp_layer_new ( image, "Background",
-                                       rgb.width, rgb.height,
-                                       GIMP_RGB_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      rgb.width, rgb.height,
+                                      GIMP_RGB_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
         }
-      else //8 bit depth import
+      else /* 8 bit depth import */
         {
 
-          if ( loadlinear )
+          if (loadlinear)
             {
-              image = gimp_image_new_with_precision ( rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U8_LINEAR );
+              image = gimp_image_new_with_precision (rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U8_LINEAR);
             }
           else
             {
-              image = gimp_image_new_with_precision ( rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U8_NON_LINEAR );
+              image = gimp_image_new_with_precision (rgb.width, rgb.height, GIMP_RGB, GIMP_PRECISION_U8_NON_LINEAR);
             }
 
-          if ( profile )
+          if (profile)
             {
-              if ( gimp_color_profile_is_rgb ( profile ) )
+              if (gimp_color_profile_is_rgb (profile))
                 {
-                  gimp_image_set_color_profile ( image, profile );
+                  gimp_image_set_color_profile (image, profile);
                 }
             }
 
           rgb.depth = 8;
-          if ( loadalpha ) //RGBA
+          if (loadalpha)   /* RGBA */
             {
               rgb.rowBytes = rgb.width * 4;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
+              rgb.pixels = g_malloc_n (rgb.height, rgb.rowBytes);
 
-              decodeResult = avifImageYUVToRGB ( avif, &rgb );
+              decodeResult = avifImageYUVToRGB (avif, &rgb);
 
-              layer = gimp_layer_new ( image, "Background",
-                                       rgb.width, rgb.height,
-                                       GIMP_RGBA_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      rgb.width, rgb.height,
+                                      GIMP_RGBA_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
-          else //RGB
+          else /* RGB */
             {
               rgb.rowBytes = rgb.width * 3;
-              rgb.pixels = g_malloc_n ( rgb.height, rgb.rowBytes );
+              rgb.pixels = g_malloc_n (rgb.height, rgb.rowBytes);
 
-              decodeResult = avifImageYUVToRGB ( avif, &rgb );
+              decodeResult = avifImageYUVToRGB (avif, &rgb);
 
-              layer = gimp_layer_new ( image, "Background",
-                                       rgb.width, rgb.height,
-                                       GIMP_RGB_IMAGE, 100,
-                                       gimp_image_get_default_new_layer_mode ( image ) );
+              layer = gimp_layer_new (image, "Background",
+                                      rgb.width, rgb.height,
+                                      GIMP_RGB_IMAGE, 100,
+                                      gimp_image_get_default_new_layer_mode (image));
             }
         }
 
-      gimp_image_insert_layer ( image, layer, NULL, 0 );
+      gimp_image_insert_layer (image, layer, NULL, 0);
 
-      buffer = gimp_drawable_get_buffer ( GIMP_DRAWABLE ( layer ) );
+      buffer = gimp_drawable_get_buffer (GIMP_DRAWABLE (layer));
 
-      gegl_buffer_set ( buffer, GEGL_RECTANGLE ( 0, 0, rgb.width, rgb.height ), 0,
-                        NULL, rgb.pixels, GEGL_AUTO_ROWSTRIDE );
+      gegl_buffer_set (buffer, GEGL_RECTANGLE (0, 0, rgb.width, rgb.height), 0,
+                       NULL, rgb.pixels, GEGL_AUTO_ROWSTRIDE);
 
-      g_object_unref ( buffer );
-      g_free ( rgb.pixels );
+      g_object_unref (buffer);
+      g_free (rgb.pixels);
 
-      if ( profile )
+      if (profile)
         {
-          if ( gimp_color_profile_is_gray ( profile ) && image ) //image was loaded as RGB but ICC profile indicate grayscale
+          if (gimp_color_profile_is_gray (profile) && image)     /* image was loaded as RGB but ICC profile indicate grayscale */
             {
-              gimp_image_convert_grayscale ( image );
+              gimp_image_convert_grayscale (image);
             }
 
         }
     }
 
-  gimp_image_undo_disable ( image );
-  gimp_image_set_file ( image, file );
+  gimp_image_undo_disable (image);
+  gimp_image_set_file (image, file);
 
-  if ( profile )
+  if (profile)
     {
-      g_object_unref ( profile );
+      g_object_unref (profile);
       profile = NULL;
     }
 
-//transformations
-  if ( avif->transformFlags & AVIF_TRANSFORM_CLAP )
+  /* transformations */
+  if (avif->transformFlags & AVIF_TRANSFORM_CLAP)
     {
-      if ( ( avif->clap.widthD > 0 ) && ( avif->clap.heightD > 0 ) &&
-           ( avif->clap.horizOffD > 0 ) && ( avif->clap.vertOffD > 0 ) )
+      if ( (avif->clap.widthD > 0) && (avif->clap.heightD > 0) &&
+           (avif->clap.horizOffD > 0) && (avif->clap.vertOffD > 0))
         {
+          const gint avif_width = avif->width;
+          const gint avif_height = avif->height;
           gint  new_width, new_height, offx, offy;
 
-          new_width = ( gint ) ( ( double ) ( avif->clap.widthN )  / ( avif->clap.widthD ) + 0.5 );
-          if ( new_width > avif->width )
+          new_width = (gint) ( (double) (avif->clap.widthN)  / (avif->clap.widthD) + 0.5);
+          if (new_width > avif_width)
             {
-              new_width = avif->width;
+              new_width = avif_width;
             }
 
-          new_height = ( gint ) ( ( double ) ( avif->clap.heightN ) / ( avif->clap.heightD ) + 0.5 );
-          if ( new_height > avif->height )
+          new_height = (gint) ( (double) (avif->clap.heightN) / (avif->clap.heightD) + 0.5);
+          if (new_height > avif_height)
             {
-              new_height = avif->height;
+              new_height = avif_height;
             }
 
-          if ( new_width > 0 && new_height > 0 )
+          if (new_width > 0 && new_height > 0)
             {
 
-              offx = ( ( double ) ( ( int32_t ) avif->clap.horizOffN ) ) / ( avif->clap.horizOffD ) +
-                     ( avif->width - new_width ) / 2.0 + 0.5;
-              if ( offx < 0 )
+              offx = ( (double) ( (int32_t) avif->clap.horizOffN)) / (avif->clap.horizOffD) +
+                     (avif_width - new_width) / 2.0 + 0.5;
+              if (offx < 0)
                 {
                   offx = 0;
                 }
-              else if ( offx > ( avif->width - new_width ) )
+              else if (offx > (avif_width - new_width))
                 {
-                  offx = avif->width - new_width;
+                  offx = avif_width - new_width;
                 }
 
-              offy = ( ( double ) ( ( int32_t ) avif->clap.vertOffN ) ) / ( avif->clap.vertOffD ) +
-                     ( avif->height - new_height ) / 2.0 + 0.5;
-              if ( offy < 0 )
+              offy = ( (double) ( (int32_t) avif->clap.vertOffN)) / (avif->clap.vertOffD) +
+                     (avif_height - new_height) / 2.0 + 0.5;
+              if (offy < 0)
                 {
                   offy = 0;
                 }
-              else if ( offy > ( avif->height - new_height ) )
+              else if (offy > (avif_height - new_height))
                 {
-                  offy = avif->height - new_height;
+                  offy = avif_height - new_height;
                 }
 
-              gimp_image_crop ( image, new_width, new_height, offx, offy );
+              gimp_image_crop (image, new_width, new_height, offx, offy);
             }
         }
 
-      else //Zero values, we need to avoid 0 divide.
+      else /* Zero values, we need to avoid 0 divide. */
         {
-          g_message ( "ERROR: Wrong values in avifCleanApertureBox\n" );
+          g_message ("ERROR: Wrong values in avifCleanApertureBox\n");
         }
     }
 
-  if ( avif->transformFlags & AVIF_TRANSFORM_IROT )
+  if (avif->transformFlags & AVIF_TRANSFORM_IROT)
     {
-      switch ( avif->irot.angle )
+      switch (avif->irot.angle)
         {
         case 1:
-          gimp_image_rotate ( image, GIMP_ROTATE_270 );
+          gimp_image_rotate (image, GIMP_ROTATE_270);
           break;
         case 2:
-          gimp_image_rotate ( image, GIMP_ROTATE_180 );
+          gimp_image_rotate (image, GIMP_ROTATE_180);
           break;
         case 3:
-          gimp_image_rotate ( image, GIMP_ROTATE_90 );
+          gimp_image_rotate (image, GIMP_ROTATE_90);
           break;
         }
     }
 
-  if ( avif->transformFlags & AVIF_TRANSFORM_IMIR )
+  if (avif->transformFlags & AVIF_TRANSFORM_IMIR)
     {
-      switch ( avif->imir.axis )
+      switch (avif->imir.axis)
         {
         case 0:
-          gimp_image_flip ( image, GIMP_ORIENTATION_VERTICAL );
+          gimp_image_flip (image, GIMP_ORIENTATION_VERTICAL);
           break;
         case 1:
-          gimp_image_flip ( image, GIMP_ORIENTATION_HORIZONTAL );
+          gimp_image_flip (image, GIMP_ORIENTATION_HORIZONTAL);
           break;
         }
     }
 
-  if ( metadata && image )
+  if (metadata && image)
     {
-      gexiv2_metadata_erase_exif_thumbnail ( GEXIV2_METADATA ( metadata ) );
-      gimp_image_set_metadata ( image, metadata );
-
       GimpMetadataLoadFlags flags = GIMP_METADATA_LOAD_COMMENT | GIMP_METADATA_LOAD_RESOLUTION ;
-      gimp_image_metadata_load_finish ( image, "image/avif", metadata, flags, interactive );
+      gexiv2_metadata_erase_exif_thumbnail (GEXIV2_METADATA (metadata));
+      gimp_image_set_metadata (image, metadata);
+
+      gimp_image_metadata_load_finish (image, "image/avif", metadata, flags, interactive);
     }
 
 
-  avifDecoderDestroy ( decoder );
-  avifRWDataFree ( &raw );
-  g_free ( filename );
+  avifDecoderDestroy (decoder);
+  avifRWDataFree (&raw);
+  g_free (filename);
   return image;
 }
