@@ -234,6 +234,8 @@ GimpImage *load_image (GFile       *file,
 
   FILE *inputFile = g_fopen (filename, "rb");
 
+  size_t            inputFileSize;
+  avifRWData        raw = AVIF_DATA_EMPTY;
   avifDecoder      *decoder = NULL;
   avifResult        decodeResult;
   avifImage        *avif;
@@ -245,14 +247,49 @@ GimpImage *load_image (GFile       *file,
       return NULL;
     }
 
+  fseek (inputFile, 0, SEEK_END);
+  inputFileSize = ftell (inputFile);
+  fseek (inputFile, 0, SEEK_SET);
+
+  if (inputFileSize < 1)
+    {
+      g_message ("File too small: %s\n", filename);
+      fclose (inputFile);
+      g_free (filename);
+      return NULL;
+    }
+
+  avifRWDataRealloc (&raw, inputFileSize);
+  if (fread (raw.data, 1, inputFileSize, inputFile) != inputFileSize)
+    {
+      g_message ("Failed to read %zu bytes: %s\n", inputFileSize, filename);
+      fclose (inputFile);
+      avifRWDataFree (&raw);
+
+      g_free (filename);
+      return NULL;
+    }
+
+  fclose (inputFile);
+  inputFile = NULL;
+
+  if (avifPeekCompatibleFileType ( (avifROData *) &raw) == AVIF_FALSE)
+    {
+      g_message ("File %s is probably not in AVIF format!\n", filename);
+      avifRWDataFree (&raw);
+      g_free (filename);
+      return NULL;
+    }
+
   decoder = avifDecoderCreate();
 
-  decodeResult = avifDecoderSetIOFilePtr (decoder, inputFile, AVIF_TRUE);
+  decodeResult = avifDecoderSetIOMemory (decoder, (avifROData *) &raw);
   if (decodeResult != AVIF_RESULT_OK)
     {
-      g_message ("ERROR: avifDecoderSetIOFilePtr failed: %s\n", avifResultToString (decodeResult));
+      g_message ("ERROR: avifDecoderSetIOMemory failed: %s\n", avifResultToString (decodeResult));
 
       avifDecoderDestroy (decoder);
+      avifRWDataFree (&raw);
       g_free (filename);
       return NULL;
     }
@@ -263,6 +300,7 @@ GimpImage *load_image (GFile       *file,
       g_message ("ERROR: Failed to parse input: %s\n", avifResultToString (decodeResult));
 
       avifDecoderDestroy (decoder);
+      avifRWDataFree (&raw);
       g_free (filename);
       return NULL;
     }
@@ -273,6 +311,7 @@ GimpImage *load_image (GFile       *file,
       g_message ("ERROR: Failed to decode image: %s\n", avifResultToString (decodeResult));
 
       avifDecoderDestroy (decoder);
+      avifRWDataFree (&raw);
       g_free (filename);
       return NULL;
     }
@@ -930,6 +969,7 @@ GimpImage *load_image (GFile       *file,
 
 
   avifDecoderDestroy (decoder);
+  avifRWDataFree (&raw);
   g_free (filename);
   return image;
 }
