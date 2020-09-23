@@ -1,7 +1,7 @@
 file-avif plug-in with AVIF format support for GIMP 2.99 and newer.
 The plug-in doesn’t work with versions 2.10.x and older because they use different plug-in API.
 Dependencies:
-libavif 0.6.0 or newer
+libavif 0.8.1 or newer
 https://github.com/AOMediaCodec/libavif
 
 In case your system has libavif library installed, the plug-in will be linked dynamically.
