@@ -964,7 +964,7 @@ GimpImage *load_image (GFile       *file,
       gexiv2_metadata_erase_exif_thumbnail (GEXIV2_METADATA (metadata));
       gimp_image_set_metadata (image, metadata);
 
-      gimp_image_metadata_load_finish (image, "image/avif", metadata, flags, interactive);
+      gimp_image_metadata_load_finish (image, "image/avif", metadata, flags);
     }
 
 
