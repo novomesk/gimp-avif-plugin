@@ -366,6 +366,9 @@ static avifBool avifCodecDecodeInputGetSamples(avifCodecDecodeInput * decodeInpu
             sample->size = sampleSize;
             sample->sync = AVIF_FALSE; // to potentially be set to true following the outer loop
 
+            if (sampleSize > UINT64_MAX - sampleOffset) {
+                return AVIF_FALSE;
+            }
             if (sizeHint && ((sampleOffset + sampleSize) > (uint64_t)sizeHint)) {
                 return AVIF_FALSE;
             }
@@ -2028,9 +2031,13 @@ static avifBool avifParseFileTypeBox(avifFileType * ftyp, const uint8_t * raw, s
 
 static avifResult avifParse(avifDecoder * decoder)
 {
+    // Note: this top-level function is the only avifParse*() function that returns avifResult instead of avifBool.
+    // Be sure to use CHECKERR() in this function with an explicit error result instead of simply using CHECK().
+
     avifResult readResult;
-    size_t parseOffset = 0;
+    uint64_t parseOffset = 0;
     avifDecoderData * data = decoder->data;
+    uint32_t uniqueBoxFlags = 0;
 
     for (;;) {
         // Read just enough to get the next box header (a max of 32 bytes)
@@ -2048,7 +2055,7 @@ static avifResult avifParse(avifDecoder * decoder)
         // Parse the header, and find out how many bytes it actually was
         BEGIN_STREAM(headerStream, headerContents.data, headerContents.size);
         avifBoxHeader header;
-        CHECK(avifROStreamReadBoxHeader(&headerStream, &header));
+        CHECKERR(avifROStreamReadBoxHeaderPartial(&headerStream, &header), AVIF_RESULT_BMFF_PARSE_FAILED);
         parseOffset += headerStream.offset;
 
         // Try to get the remainder of the box, if necessary
@@ -2062,20 +2069,24 @@ static avifResult avifParse(avifDecoder * decoder)
             }
             if (boxContents.size != header.size) {
                 // A truncated box, bail out
-                return AVIF_RESULT_BMFF_PARSE_FAILED;
+                return AVIF_RESULT_TRUNCATED_DATA;
             }
+        } else if (header.size > (UINT64_MAX - parseOffset)) {
+            return AVIF_RESULT_BMFF_PARSE_FAILED;
         }
+        parseOffset += header.size;
 
         if (!memcmp(header.type, "ftyp", 4)) {
+            CHECKERR(uniqueBoxSeen(&uniqueBoxFlags, 0), AVIF_RESULT_BMFF_PARSE_FAILED);
             avifRWDataSet(&data->ftypData, boxContents.data, boxContents.size);
-            CHECK(avifParseFileTypeBox(&data->ftyp, data->ftypData.data, data->ftypData.size));
+            CHECKERR(avifParseFileTypeBox(&data->ftyp, data->ftypData.data, data->ftypData.size), AVIF_RESULT_BMFF_PARSE_FAILED);
         } else if (!memcmp(header.type, "meta", 4)) {
-            CHECK(avifParseMetaBox(data->meta, boxContents.data, boxContents.size));
+            CHECKERR(uniqueBoxSeen(&uniqueBoxFlags, 1), AVIF_RESULT_BMFF_PARSE_FAILED);
+            CHECKERR(avifParseMetaBox(data->meta, boxContents.data, boxContents.size), AVIF_RESULT_BMFF_PARSE_FAILED);
         } else if (!memcmp(header.type, "moov", 4)) {
-            CHECK(avifParseMoovBox(data, boxContents.data, boxContents.size));
+            CHECKERR(uniqueBoxSeen(&uniqueBoxFlags, 2), AVIF_RESULT_BMFF_PARSE_FAILED);
+            CHECKERR(avifParseMoovBox(data, boxContents.data, boxContents.size), AVIF_RESULT_BMFF_PARSE_FAILED);
         }
-
-        parseOffset += header.size;
     }
     return AVIF_RESULT_OK;
 }
