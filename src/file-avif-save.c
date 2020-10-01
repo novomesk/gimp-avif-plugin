@@ -241,7 +241,7 @@ gboolean   save_layer (GFile         *file,
   const Babl     *space;
   gint            drawable_width;
   gint            drawable_height;
-  gint            savedepth;
+  gint            save_bit_depth = 8;
   gboolean        out_linear, save_alpha, is_gray;
   guchar         *pixels;
 
@@ -258,7 +258,6 @@ gboolean   save_layer (GFile         *file,
   gboolean        save_icc_profile = TRUE;
   gboolean        save_exif = FALSE;
   gboolean        save_xmp = FALSE;
-  gboolean        save_12bit_depth = FALSE;
   gint            num_threads = 1;
   gint            encoder_speed;
   gint            i, j;
@@ -275,12 +274,12 @@ gboolean   save_layer (GFile         *file,
                 "min-quantizer", &retval_double2,
                 "alpha-quantizer", &retval_double4,
                 "pixel-format", &pixel_format,
+                "save-bit-depth", &save_bit_depth,
                 "av1-encoder", &codec_choice,
                 "encoder-speed", &retval_double3,
                 "save-color-profile", &save_icc_profile,
                 "save-exif", &save_exif,
                 "save-xmp", &save_xmp,
-                "save-12bit-depth", &save_12bit_depth,
                 NULL);
   max_quantizer = (int) (retval_double + 0.5);
   min_quantizer = (int) (retval_double2 + 0.5);
@@ -305,12 +304,10 @@ gboolean   save_layer (GFile         *file,
   switch (gimp_image_get_precision (image))
     {
     case GIMP_PRECISION_U8_LINEAR:
-      savedepth = 8;
       out_linear = TRUE;
       break;
 
     case GIMP_PRECISION_U8_NON_LINEAR:
-      savedepth = 8;
       out_linear = FALSE;
       break;
 
@@ -319,7 +316,6 @@ gboolean   save_layer (GFile         *file,
     case GIMP_PRECISION_HALF_LINEAR:
     case GIMP_PRECISION_FLOAT_LINEAR:
     case GIMP_PRECISION_DOUBLE_LINEAR:
-      savedepth = save_12bit_depth ? 12 : 10;
       out_linear = TRUE;
       break;
     case GIMP_PRECISION_U16_NON_LINEAR:
@@ -327,12 +323,10 @@ gboolean   save_layer (GFile         *file,
     case GIMP_PRECISION_HALF_NON_LINEAR:
     case GIMP_PRECISION_FLOAT_NON_LINEAR:
     case GIMP_PRECISION_DOUBLE_NON_LINEAR:
-      savedepth = save_12bit_depth ? 12 : 10;
       out_linear = FALSE;
       break;
 
     default:
-      savedepth = save_12bit_depth ? 12 : 10;
       if (gimp_color_profile_is_linear (profile))
         {
           out_linear = TRUE;
@@ -360,7 +354,7 @@ gboolean   save_layer (GFile         *file,
       pixel_format = AVIF_PIXEL_FORMAT_YUV400;
     }
 
-  avif = avifImageCreate (drawable_width, drawable_height, savedepth, pixel_format);
+  avif = avifImageCreate (drawable_width, drawable_height, save_bit_depth, pixel_format);
   avif->yuvRange = AVIF_RANGE_FULL;
 
   if (save_icc_profile)
@@ -488,7 +482,7 @@ gboolean   save_layer (GFile         *file,
       save_alpha = TRUE;
       is_gray = FALSE;
 
-      if (savedepth == 8)
+      if (save_bit_depth == 8)
         {
           pixels = g_new (guchar, drawable_width * drawable_height * 4);
           if (out_linear)
@@ -517,7 +511,7 @@ gboolean   save_layer (GFile         *file,
       save_alpha = FALSE;
       is_gray = FALSE;
 
-      if (savedepth == 8)
+      if (save_bit_depth == 8)
         {
           pixels = g_new (guchar, drawable_width * drawable_height * 3);
           if (out_linear)
@@ -546,7 +540,7 @@ gboolean   save_layer (GFile         *file,
       save_alpha = TRUE;
       is_gray = TRUE;
 
-      if (savedepth == 8)
+      if (save_bit_depth == 8)
         {
           pixels = g_new (guchar, drawable_width * drawable_height * 2);
           if (out_linear)
@@ -575,7 +569,7 @@ gboolean   save_layer (GFile         *file,
       save_alpha = FALSE;
       is_gray = TRUE;
 
-      if (savedepth == 8)
+      if (save_bit_depth == 8)
         {
           pixels = g_new (guchar, drawable_width * drawable_height);
           if (out_linear)
@@ -784,7 +778,7 @@ gboolean   save_layer (GFile         *file,
             {
               uint16_t  *alpha_dest;
 
-              if (savedepth == 10)
+              if (save_bit_depth == 10)
                 {
                   for (j = 0; j < drawable_height; ++j)
                     {
@@ -804,7 +798,7 @@ gboolean   save_layer (GFile         *file,
                         }
                     }
                 }
-              else /* savedepth == 12 */
+              else /* save_bit_depth == 12 */
                 {
                   for (j = 0; j < drawable_height; ++j)
                     {
@@ -827,7 +821,7 @@ gboolean   save_layer (GFile         *file,
             }
           else /* no alpha channel */
             {
-              if (savedepth == 10)
+              if (save_bit_depth == 10)
                 {
                   for (j = 0; j < drawable_height; ++j)
                     {
@@ -841,7 +835,7 @@ gboolean   save_layer (GFile         *file,
                         }
                     }
                 }
-              else /* savedepth == 12 */
+              else /* save_bit_depth == 12 */
                 {
                   for (j = 0; j < drawable_height; ++j)
                     {

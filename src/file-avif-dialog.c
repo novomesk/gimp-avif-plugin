@@ -141,15 +141,15 @@ gboolean   save_dialog (GimpImage     *image,
   GtkListStore  *store;
   GtkWidget     *combo;
 
-  gboolean       bitdepth12_supported = FALSE;
   gboolean       run;
   gint           row = 0;
+  gint           save_bit_depth = 8;
 
   gint32         nlayers;
-  GimpLayer     **layers = gimp_image_get_layers (image, &nlayers);
+  GimpLayer    **layers = gimp_image_get_layers (image, &nlayers);
 
   /* UNUSED gboolean animation_supported = nlayers > 1; */
-  gboolean   alpha_supported = FALSE;
+  gboolean       alpha_supported = FALSE;
 
   gint32 i;
   for (i = 0 ; i < nlayers; i++)
@@ -164,16 +164,6 @@ gboolean   save_dialog (GimpImage     *image,
 
   g_free (layers);
 
-
-  switch (gimp_image_get_precision (image))
-    {
-    case GIMP_PRECISION_U8_LINEAR:
-    case GIMP_PRECISION_U8_GAMMA:
-      bitdepth12_supported = FALSE;
-      break;
-    default:
-      bitdepth12_supported = TRUE;
-    }
 
   dialog = gimp_procedure_dialog_new (procedure,
                                       GIMP_PROCEDURE_CONFIG (config),
@@ -235,6 +225,49 @@ gboolean   save_dialog (GimpImage     *image,
                             "Pixel format:", 0.0, 0.5,
                             combo, 2);
 
+  /* Create combobox with Bit depth of saved image */
+  g_object_get (config,
+                "save-bit-depth", &save_bit_depth,
+                NULL);
+
+  switch (gimp_image_get_precision (image))
+    {
+    case GIMP_PRECISION_U8_LINEAR:
+    case GIMP_PRECISION_U8_NON_LINEAR:
+    case GIMP_PRECISION_U8_PERCEPTUAL:
+      /* image is 8bit depth */
+      if (save_bit_depth > 8)
+        {
+          save_bit_depth = 8;
+          g_object_set (config,
+                        "save-bit-depth", save_bit_depth,
+                        NULL);
+        }
+      break;
+    default:
+      /* high bit depth */
+      if (save_bit_depth < 10)
+        {
+          save_bit_depth = 10; /* I prefer 10bit, because it is more supported than 12bit */
+          g_object_set (config,
+                        "save-bit-depth", save_bit_depth,
+                        NULL);
+        }
+      break;
+    }
+
+  store = gimp_int_store_new ("8 bit/channel",         8,
+                              "10 bit/channel (HDR)", 10,
+                              "12 bit/channel (HDR)", 12,
+                              NULL);
+
+  combo = gimp_prop_int_combo_box_new (config, "save-bit-depth",
+                                       GIMP_INT_STORE (store));
+  g_object_unref (store);
+  gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
+                            "Bit depth:", 0.0, 0.5,
+                            combo, 2);
+
   /* Create combobox with available encoders */
   store = avifplugin_create_codec_store (config);
 
@@ -264,15 +297,6 @@ gboolean   save_dialog (GimpImage     *image,
   else
     {
       g_object_set (config, "save-alpha-channel", FALSE, NULL);
-    }
-
-
-  /* 12 bit export */
-  if (bitdepth12_supported)
-    {
-      toggle = gimp_prop_check_button_new (config, "save-12bit-depth",
-                                           "Use 12bit depth");
-      gtk_box_pack_start (GTK_BOX (vbox), toggle, FALSE, FALSE, 0);
     }
 
   /* Save EXIF data */

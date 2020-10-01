@@ -208,17 +208,17 @@ avif_create_procedure (GimpPlugIn  *plug_in,
                          AVIF_PIXEL_FORMAT_YUV420,
                          G_PARAM_READWRITE);
 
+      GIMP_PROC_ARG_INT (procedure, "save-bit-depth",
+                         "Bit depth",
+                         "Bit depth of exported image",
+                         8, 12, 8,
+                         G_PARAM_READWRITE);
+
       GIMP_PROC_ARG_INT (procedure, "av1-encoder",
                          "AV1 encoder",
                          "Select encoder for AV1 stream",
                          AVIF_CODEC_CHOICE_AUTO, AVIF_CODEC_CHOICE_RAV1E, AVIF_CODEC_CHOICE_AUTO,
                          G_PARAM_READWRITE);
-
-      GIMP_PROC_ARG_BOOLEAN (procedure, "save-12bit-depth",
-                             "Use 12bit depth",
-                             "Use 12bit depth istead of 10bit depth",
-                             FALSE,
-                             G_PARAM_READWRITE);
 
       GIMP_PROC_ARG_DOUBLE (procedure, "encoder-speed",
                             "Encoder speed",
