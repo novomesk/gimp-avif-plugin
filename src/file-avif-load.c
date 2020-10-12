@@ -283,7 +283,7 @@ GimpImage *load_image (GFile       *file,
 
   decoder = avifDecoderCreate();
 
-  decodeResult = avifDecoderSetIOMemory (decoder, (avifROData *) &raw);
+  decodeResult = avifDecoderSetIOMemory (decoder, raw.data, raw.size);
   if (decodeResult != AVIF_RESULT_OK)
     {
       g_message ("ERROR: avifDecoderSetIOMemory failed: %s\n", avifResultToString (decodeResult));
