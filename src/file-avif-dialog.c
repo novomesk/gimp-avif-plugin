@@ -257,8 +257,8 @@ gboolean   save_dialog (GimpImage     *image,
     }
 
   store = gimp_int_store_new ("8 bit/channel",         8,
-                              "10 bit/channel (HDR)", 10,
-                              "12 bit/channel (HDR)", 12,
+                              "10 bit/channel", 10,
+                              "12 bit/channel", 12,
                               NULL);
 
   combo = gimp_prop_int_combo_box_new (config, "save-bit-depth",
