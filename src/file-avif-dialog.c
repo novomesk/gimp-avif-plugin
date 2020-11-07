@@ -141,6 +141,11 @@ gboolean   save_dialog (GimpImage     *image,
   GtkListStore  *store;
   GtkWidget     *combo;
 
+  GtkWidget *min_quantizer_scale;
+  GtkWidget *max_quantizer_scale;
+  GtkWidget *alpha_quantizer_scale;
+  GtkWidget *speed_scale;
+
   gboolean       run;
   gint           row = 0;
   gint           save_bit_depth = 8;
@@ -181,33 +186,39 @@ gboolean   save_dialog (GimpImage     *image,
   gtk_box_pack_start (GTK_BOX (vbox), grid, FALSE, FALSE, 0);
   gtk_widget_show (grid);
 
-  /* GtkAdjustment *min_quantizer_scale = */
-  gimp_prop_scale_entry_new (config, "min-quantizer",
-                             GTK_GRID (grid), 0, row++,
-                             "Quantizer (Min):",
-                             1.0, 10.0, 0,
-                             FALSE, 0, 0);
+  min_quantizer_scale =
+    gimp_prop_scale_entry_new (config, "min-quantizer",
+                               NULL, 0, FALSE, 0, 0);
+  gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (min_quantizer_scale)));
+  gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
+                            "Quantizer (Min):",
+                            0.0, 0.5, min_quantizer_scale, 2);
+
   g_signal_connect (config, "notify::min-quantizer",
                     G_CALLBACK (save_dialog_min_quantizer_changed),
                     NULL);
 
-  /* GtkAdjustment *max_quantizer_scale = */
-  gimp_prop_scale_entry_new (config, "max-quantizer",
-                             GTK_GRID (grid), 0, row++,
-                             "Quantizer (Max):",
-                             1.0, 10.0, 0,
-                             FALSE, 0, 0);
+  max_quantizer_scale =
+    gimp_prop_scale_entry_new (config, "max-quantizer",
+                               NULL, 0, FALSE, 0, 0);
+  gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (max_quantizer_scale)));
+  gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
+                            "Quantizer (Max):",
+                            0.0, 0.5, max_quantizer_scale, 2);
+
   g_signal_connect (config, "notify::max-quantizer",
                     G_CALLBACK (save_dialog_max_quantizer_changed),
                     NULL);
 
   if (alpha_supported)
     {
-      gimp_prop_scale_entry_new (config, "alpha-quantizer",
-                                 GTK_GRID (grid), 0, row++,
-                                 "Quantizer (Alpha):",
-                                 1.0, 10.0, 0,
-                                 FALSE, 0, 0);
+      alpha_quantizer_scale =
+        gimp_prop_scale_entry_new (config, "alpha-quantizer",
+                                   NULL, 0, FALSE, 0, 0);
+      gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (alpha_quantizer_scale)));
+      gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
+                                "Quantizer (Alpha):",
+                                0.0, 0.5, alpha_quantizer_scale, 2);
     }
 
   /* Create the combobox containing the Pixel formats */
@@ -279,12 +290,13 @@ gboolean   save_dialog (GimpImage     *image,
                             "Encoder:", 0.0, 0.5,
                             combo, 2);
 
-  /*GtkAdjustment *speed_scale =*/
-  gimp_prop_scale_entry_new (config, "encoder-speed",
-                             GTK_GRID (grid), 0, row++,
-                             "Encoder speed:",
-                             1.0, 4.0, 0,
-                             FALSE, 0, 0);
+  speed_scale =
+    gimp_prop_scale_entry_new (config, "encoder-speed",
+                               NULL, 0, FALSE, 0, 0);
+  gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (speed_scale)));
+  gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
+                            "Encoder speed:",
+                            0.0, 0.5, speed_scale, 2);
 
 
   /* Save trasparency */
