@@ -23,9 +23,11 @@ static void gav1CodecDestroyInternal(avifCodec * codec)
     avifFree(codec->internal);
 }
 
-static avifBool gav1CodecOpen(avifCodec * codec)
+static avifBool gav1CodecOpen(avifCodec * codec, avifDecoder * decoder)
 {
     if (codec->internal->gav1Decoder == NULL) {
+        codec->internal->gav1Settings.threads = decoder->maxThreads;
+
         if (Libgav1DecoderCreate(&codec->internal->gav1Settings, &codec->internal->gav1Decoder) != kLibgav1StatusOk) {
             return AVIF_FALSE;
         }
@@ -98,6 +100,7 @@ static avifBool gav1CodecGetNextImage(struct avifCodec * codec, const avifDecode
 
         image->yuvFormat = yuvFormat;
         image->yuvRange = codec->internal->colorRange;
+        image->yuvChromaSamplePosition = (avifChromaSamplePosition)gav1Image->chroma_sample_position;
 
         image->colorPrimaries = (avifColorPrimaries)gav1Image->color_primary;
         image->transferCharacteristics = (avifTransferCharacteristics)gav1Image->transfer_characteristics;
@@ -154,8 +157,5 @@ avifCodec * avifCodecCreateGav1(void)
     codec->internal = (struct avifCodecInternal *)avifAlloc(sizeof(struct avifCodecInternal));
     memset(codec->internal, 0, sizeof(struct avifCodecInternal));
     Libgav1DecoderSettingsInitDefault(&codec->internal->gav1Settings);
-    // The number of threads (default to 1) should depend on the number of
-    // processor cores. For now use a hardcoded value of 2.
-    codec->internal->gav1Settings.threads = 2;
     return codec;
 }

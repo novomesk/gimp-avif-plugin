@@ -49,9 +49,13 @@ static void dav1dCodecDestroyInternal(avifCodec * codec)
     avifFree(codec->internal);
 }
 
-static avifBool dav1dCodecOpen(avifCodec * codec)
+static avifBool dav1dCodecOpen(avifCodec * codec, avifDecoder * decoder)
 {
     if (codec->internal->dav1dContext == NULL) {
+        // Give all available threads to decode a single frame as fast as possible
+        codec->internal->dav1dSettings.n_frame_threads = 1;
+        codec->internal->dav1dSettings.n_tile_threads = AVIF_CLAMP(decoder->maxThreads, 1, DAV1D_MAX_TILE_THREADS);
+
         if (dav1d_open(&codec->internal->dav1dContext, &codec->internal->dav1dSettings) != 0) {
             return AVIF_FALSE;
         }
@@ -149,6 +153,7 @@ static avifBool dav1dCodecGetNextImage(struct avifCodec * codec, const avifDecod
 
         image->yuvFormat = yuvFormat;
         image->yuvRange = codec->internal->colorRange;
+        image->yuvChromaSamplePosition = (avifChromaSamplePosition)dav1dImage->seq_hdr->chr;
 
         image->colorPrimaries = (avifColorPrimaries)dav1dImage->seq_hdr->pri;
         image->transferCharacteristics = (avifTransferCharacteristics)dav1dImage->seq_hdr->trc;

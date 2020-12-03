@@ -3,6 +3,7 @@
 
 #include "avif/internal.h"
 
+#include <assert.h>
 #include <math.h>
 #include <string.h>
 
@@ -23,7 +24,11 @@ avifBool avifPrepareReformatState(const avifImage * image, const avifRGBImage * 
     }
 
     // These matrix coefficients values are currently unsupported. Revise this list as more support is added.
-    if ((image->matrixCoefficients == 3 /* CICP reserved */) || (image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_YCGCO) ||
+    //
+    // YCgCo performs limited-full range adjustment on R,G,B but the current implementation performs range adjustment
+    // on Y,U,V. So YCgCo with limited range is unsupported.
+    if ((image->matrixCoefficients == 3 /* CICP reserved */) ||
+        ((image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_YCGCO) && (image->yuvRange == AVIF_RANGE_LIMITED)) ||
         (image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_BT2020_CL) ||
         (image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_SMPTE2085) ||
         (image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_CL) ||
@@ -40,6 +45,8 @@ avifBool avifPrepareReformatState(const avifImage * image, const avifRGBImage * 
 
     if (image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_IDENTITY) {
         state->mode = AVIF_REFORMAT_MODE_IDENTITY;
+    } else if (image->matrixCoefficients == AVIF_MATRIX_COEFFICIENTS_YCGCO) {
+        state->mode = AVIF_REFORMAT_MODE_YCGCO;
     }
 
     if (state->mode != AVIF_REFORMAT_MODE_YUV_COEFFICIENTS) {
@@ -213,6 +220,11 @@ avifResult avifImageRGBToYUV(avifImage * image, const avifRGBImage * rgb)
                         yuvBlock[bI][bJ].y = rgbPixel[1]; // G
                         yuvBlock[bI][bJ].u = rgbPixel[2]; // B
                         yuvBlock[bI][bJ].v = rgbPixel[0]; // R
+                    } else if (state.mode == AVIF_REFORMAT_MODE_YCGCO) {
+                        // Formulas 44,45,46 from https://www.itu.int/rec/T-REC-H.273-201612-I/en
+                        yuvBlock[bI][bJ].y = 0.5f * rgbPixel[1] + 0.25f * (rgbPixel[0] + rgbPixel[2]);
+                        yuvBlock[bI][bJ].u = 0.5f * rgbPixel[1] - 0.25f * (rgbPixel[0] + rgbPixel[2]);
+                        yuvBlock[bI][bJ].v = 0.5f * (rgbPixel[0] - rgbPixel[2]);
                     } else {
                         float Y = (kr * rgbPixel[0]) + (kg * rgbPixel[1]) + (kb * rgbPixel[2]);
                         yuvBlock[bI][bJ].y = Y;
@@ -334,7 +346,10 @@ avifResult avifImageRGBToYUV(avifImage * image, const avifRGBImage * rgb)
     return AVIF_RESULT_OK;
 }
 
-static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image, avifRGBImage * rgb, avifReformatState * state)
+static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image,
+                                              avifRGBImage * rgb,
+                                              avifReformatState * state,
+                                              const avifChromaUpsampling chromaUpsampling)
 {
     // Aliases for some state
     const float kr = state->kr;
@@ -357,6 +372,9 @@ static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image, avifRGBIm
     const avifBool hasColor = (uPlane && vPlane && (image->yuvFormat != AVIF_PIXEL_FORMAT_YUV400));
     const uint16_t yuvMaxChannel = (uint16_t)state->yuvMaxChannel;
     const float rgbMaxChannelF = state->rgbMaxChannelF;
+
+    // These are the only supported built-ins
+    assert((chromaUpsampling == AVIF_CHROMA_UPSAMPLING_BILINEAR) || (chromaUpsampling == AVIF_CHROMA_UPSAMPLING_NEAREST));
 
     for (uint32_t j = 0; j < image->height; ++j) {
         const uint32_t uvJ = j >> state->formatInfo.chromaShiftY;
@@ -493,13 +511,15 @@ static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image, avifRGBIm
                         }
                     }
 
-                    if (rgb->chromaUpsampling == AVIF_CHROMA_UPSAMPLING_BILINEAR) {
+                    if (chromaUpsampling == AVIF_CHROMA_UPSAMPLING_BILINEAR) {
                         // Bilinear filtering with weights
                         Cb = (unormFloatTableUV[unormU[0][0]] * (9.0f / 16.0f)) + (unormFloatTableUV[unormU[1][0]] * (3.0f / 16.0f)) +
                              (unormFloatTableUV[unormU[0][1]] * (3.0f / 16.0f)) + (unormFloatTableUV[unormU[1][1]] * (1.0f / 16.0f));
                         Cr = (unormFloatTableUV[unormV[0][0]] * (9.0f / 16.0f)) + (unormFloatTableUV[unormV[1][0]] * (3.0f / 16.0f)) +
                              (unormFloatTableUV[unormV[0][1]] * (3.0f / 16.0f)) + (unormFloatTableUV[unormV[1][1]] * (1.0f / 16.0f));
                     } else {
+                        assert(chromaUpsampling == AVIF_CHROMA_UPSAMPLING_NEAREST);
+
                         // Nearest neighbor; ignore all UVs but the closest one
                         Cb = unormFloatTableUV[unormU[0][0]];
                         Cr = unormFloatTableUV[unormV[0][0]];
@@ -514,6 +534,12 @@ static avifResult avifImageYUVAnyToRGBAnySlow(const avifImage * image, avifRGBIm
                     G = Y;
                     B = Cb;
                     R = Cr;
+                } else if (state->mode == AVIF_REFORMAT_MODE_YCGCO) {
+                    // Identity (GBR): Formulas 47,48,49,50 from https://www.itu.int/rec/T-REC-H.273-201612-I/en
+                    const float t = Y - Cb;
+                    G = Y + Cb;
+                    B = t - Cr;
+                    R = t + Cr;
                 } else {
                     // Normal YUV
                     R = Y + (2 * (1 - kr)) * Cr;
@@ -947,6 +973,16 @@ avifResult avifImageYUVToRGB(const avifImage * image, avifRGBImage * rgb)
         return AVIF_RESULT_REFORMAT_FAILED;
     }
 
+    avifBool convertedWithLibYUV = AVIF_FALSE;
+    avifResult libyuvResult = avifImageYUVToRGBLibYUV(image, rgb);
+    if (libyuvResult == AVIF_RESULT_OK) {
+        convertedWithLibYUV = AVIF_TRUE;
+    } else {
+        if (libyuvResult != AVIF_RESULT_NOT_IMPLEMENTED) {
+            return libyuvResult;
+        }
+    }
+
     if (avifRGBFormatHasAlpha(rgb->format) && !rgb->ignoreAlpha) {
         avifAlphaParams params;
 
@@ -969,14 +1005,36 @@ avifResult avifImageYUVToRGB(const avifImage * image, avifRGBImage * rgb)
 
             avifReformatAlpha(&params);
         } else {
-            avifFillAlpha(&params);
+            if (!convertedWithLibYUV) { // libyuv fills alpha for us
+                avifFillAlpha(&params);
+            }
         }
+    }
+
+    // Do this after alpha conversion
+    if (convertedWithLibYUV) {
+        return AVIF_RESULT_OK;
+    }
+
+    avifChromaUpsampling chromaUpsampling;
+    switch (rgb->chromaUpsampling) {
+        case AVIF_CHROMA_UPSAMPLING_AUTOMATIC:
+        case AVIF_CHROMA_UPSAMPLING_BEST_QUALITY:
+        case AVIF_CHROMA_UPSAMPLING_BILINEAR:
+        default:
+            chromaUpsampling = AVIF_CHROMA_UPSAMPLING_BILINEAR;
+            break;
+
+        case AVIF_CHROMA_UPSAMPLING_FASTEST:
+        case AVIF_CHROMA_UPSAMPLING_NEAREST:
+            chromaUpsampling = AVIF_CHROMA_UPSAMPLING_NEAREST;
+            break;
     }
 
     const avifBool hasColor =
         (image->yuvRowBytes[AVIF_CHAN_U] && image->yuvRowBytes[AVIF_CHAN_V] && (image->yuvFormat != AVIF_PIXEL_FORMAT_YUV400));
 
-    if (!hasColor || (image->yuvFormat == AVIF_PIXEL_FORMAT_YUV444) || (rgb->chromaUpsampling == AVIF_CHROMA_UPSAMPLING_NEAREST)) {
+    if (!hasColor || (image->yuvFormat == AVIF_PIXEL_FORMAT_YUV444) || (chromaUpsampling == AVIF_CHROMA_UPSAMPLING_NEAREST)) {
         // None of these fast paths currently support bilinear upsampling, so avoid all of them
         // unless the YUV data isn't subsampled or they explicitly requested AVIF_CHROMA_UPSAMPLING_NEAREST.
 
@@ -987,7 +1045,7 @@ avifResult avifImageYUVToRGB(const avifImage * image, avifRGBImage * rgb)
             }
 
             // TODO: Add more fast paths for identity
-        } else {
+        } else if (state.mode == AVIF_REFORMAT_MODE_YUV_COEFFICIENTS) {
             if (image->depth > 8) {
                 // yuv:u16
 
@@ -1029,7 +1087,7 @@ avifResult avifImageYUVToRGB(const avifImage * image, avifRGBImage * rgb)
     }
 
     // If we get here, there is no fast path for this combination. Time to be slow!
-    return avifImageYUVAnyToRGBAnySlow(image, rgb, &state);
+    return avifImageYUVAnyToRGBAnySlow(image, rgb, &state, chromaUpsampling);
 }
 
 // Limited -> Full

@@ -13,6 +13,7 @@ extern "C" {
 // Yes, clamp macros are nasty. Do not use them.
 #define AVIF_CLAMP(x, low, high) (((x) < (low))) ? (low) : (((high) < (x)) ? (high) : (x))
 #define AVIF_MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define AVIF_MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 // Used by stream related things.
 #define CHECK(A)               \
@@ -91,6 +92,12 @@ typedef struct avifAlphaParams
 avifBool avifFillAlpha(const avifAlphaParams * const params);
 avifBool avifReformatAlpha(const avifAlphaParams * const params);
 
+// Returns:
+// * AVIF_RESULT_OK              - Converted successfully with libyuv
+// * AVIF_RESULT_NOT_IMPLEMENTED - The fast path for this combination is not implemented with libyuv, use built-in YUV conversion
+// * [any other error]           - Return error to caller
+avifResult avifImageYUVToRGBLibYUV(const avifImage * image, avifRGBImage * rgb);
+
 // ---------------------------------------------------------------------------
 // avifCodecDecodeInput
 
@@ -102,7 +109,7 @@ typedef struct avifDecodeSample
 
     uint32_t itemID; // if non-zero, data comes from a mergedExtents buffer in an avifDecoderItem, not a file offset
     uint64_t offset; // used only when itemID is zero, ignored and set to 0 when itemID is non-zero
-    uint32_t size;
+    size_t size;
     avifBool sync; // is sync sample (keyframe)
 } avifDecodeSample;
 AVIF_ARRAY_DECLARE(avifDecodeSampleArray, avifDecodeSample, sample);
@@ -154,7 +161,7 @@ void avifCodecSpecificOptionsSet(avifCodecSpecificOptions * csOptions, const cha
 struct avifCodec;
 struct avifCodecInternal;
 
-typedef avifBool (*avifCodecOpenFunc)(struct avifCodec * codec);
+typedef avifBool (*avifCodecOpenFunc)(struct avifCodec * codec, avifDecoder * decoder); // decode only
 typedef avifBool (*avifCodecGetNextImageFunc)(struct avifCodec * codec, const avifDecodeSample * sample, avifBool alpha, avifImage * image);
 // EncodeImage and EncodeFinish are not required to always emit a sample, but when all images are
 // encoded and EncodeFinish is called, the number of samples emitted must match the number of submitted frames.
@@ -171,7 +178,6 @@ typedef void (*avifCodecDestroyInternalFunc)(struct avifCodec * codec);
 
 typedef struct avifCodec
 {
-    avifCodecConfigurationBox configBox;  // Pre-populated by avifEncoderWrite(), available and overridable by codec impls
     avifCodecSpecificOptions * csOptions; // Contains codec-specific key/value pairs for advanced tuning.
                                           // If a codec uses a value, it must mark it as used.
                                           // This array is NOT owned by avifCodec.
@@ -195,6 +201,8 @@ avifCodec * avifCodecCreateGav1(void);    // requires AVIF_CODEC_LIBGAV1 (codec_
 const char * avifCodecVersionGav1(void);  // requires AVIF_CODEC_LIBGAV1 (codec_libgav1.c)
 avifCodec * avifCodecCreateRav1e(void);   // requires AVIF_CODEC_RAV1E (codec_rav1e.c)
 const char * avifCodecVersionRav1e(void); // requires AVIF_CODEC_RAV1E (codec_rav1e.c)
+avifCodec * avifCodecCreateSvt(void);     // requires AVIF_CODEC_SVT (codec_svt.c)
+const char * avifCodecVersionSvt(void);   // requires AVIF_CODEC_SVT (codec_svt.c)
 
 // ---------------------------------------------------------------------------
 // avifStream
@@ -269,6 +277,7 @@ typedef struct avifSequenceHeader
     avifTransferCharacteristics transferCharacteristics;
     avifMatrixCoefficients matrixCoefficients;
     avifRange range;
+    avifCodecConfigurationBox av1C;
 } avifSequenceHeader;
 avifBool avifSequenceHeaderParse(avifSequenceHeader * header, const avifROData * sample);
 

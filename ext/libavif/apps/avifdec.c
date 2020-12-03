@@ -28,10 +28,12 @@ static void syntax(void)
     printf("        avifdec --info    input.avif\n");
     printf("Options:\n");
     printf("    -h,--help         : Show syntax help\n");
+    printf("    -V,--version      : Show the version number\n");
+    printf("    -j,--jobs J       : Number of jobs (worker threads, default: 1)\n");
     printf("    -c,--codec C      : AV1 codec to use (choose from versions list below)\n");
     printf("    -d,--depth D      : Output depth [8,16]. (PNG only; For y4m, depth is retained, and JPEG is always 8bpc)\n");
     printf("    -q,--quality Q    : Output quality [0-100]. (JPEG only, default: %d)\n", DEFAULT_JPEG_QUALITY);
-    printf("    -u,--upsampling U : Chroma upsampling (for 420/422). bilinear (default) or nearest\n");
+    printf("    -u,--upsampling U : Chroma upsampling (for 420/422). automatic (default), fastest, best, nearest, or bilinear\n");
     printf("    -i,--info         : Decode all frames and display all image information instead of saving to disk\n");
     printf("    --ignore-icc      : If the input file contains an embedded ICC profile, ignore it (no-op if absent)\n");
     printf("\n");
@@ -88,10 +90,11 @@ int main(int argc, char * argv[])
     const char * inputFilename = NULL;
     const char * outputFilename = NULL;
     int requestedDepth = 0;
+    int jobs = 1;
     int jpegQuality = DEFAULT_JPEG_QUALITY;
     avifCodecChoice codecChoice = AVIF_CODEC_CHOICE_AUTO;
     avifBool infoOnly = AVIF_FALSE;
-    avifChromaUpsampling chromaUpsampling = AVIF_CHROMA_UPSAMPLING_BILINEAR;
+    avifChromaUpsampling chromaUpsampling = AVIF_CHROMA_UPSAMPLING_AUTOMATIC;
     avifBool ignoreICC = AVIF_FALSE;
 
     if (argc < 2) {
@@ -106,6 +109,15 @@ int main(int argc, char * argv[])
         if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
             syntax();
             return 0;
+        } else if (!strcmp(arg, "-V") || !strcmp(arg, "--version")) {
+            avifPrintVersions();
+            return 0;
+        } else if (!strcmp(arg, "-j") || !strcmp(arg, "--jobs")) {
+            NEXTARG();
+            jobs = atoi(arg);
+            if (jobs < 1) {
+                jobs = 1;
+            }
         } else if (!strcmp(arg, "-c") || !strcmp(arg, "--codec")) {
             NEXTARG();
             codecChoice = avifCodecChoiceFromName(arg);
@@ -136,10 +148,16 @@ int main(int argc, char * argv[])
             }
         } else if (!strcmp(arg, "-u") || !strcmp(arg, "--upsampling")) {
             NEXTARG();
-            if (!strcmp(arg, "bilinear")) {
-                chromaUpsampling = AVIF_CHROMA_UPSAMPLING_BILINEAR;
+            if (!strcmp(arg, "automatic")) {
+                chromaUpsampling = AVIF_CHROMA_UPSAMPLING_AUTOMATIC;
+            } else if (!strcmp(arg, "fastest")) {
+                chromaUpsampling = AVIF_CHROMA_UPSAMPLING_FASTEST;
+            } else if (!strcmp(arg, "best")) {
+                chromaUpsampling = AVIF_CHROMA_UPSAMPLING_BEST_QUALITY;
             } else if (!strcmp(arg, "nearest")) {
                 chromaUpsampling = AVIF_CHROMA_UPSAMPLING_NEAREST;
+            } else if (!strcmp(arg, "bilinear")) {
+                chromaUpsampling = AVIF_CHROMA_UPSAMPLING_BILINEAR;
             } else {
                 fprintf(stderr, "ERROR: invalid upsampling: %s\n", arg);
                 return 1;
@@ -182,11 +200,15 @@ int main(int argc, char * argv[])
         }
     }
 
-    printf("Decoding with AV1 codec '%s', please wait...\n", avifCodecName(codecChoice, AVIF_CODEC_FLAG_CAN_DECODE));
+    printf("Decoding with AV1 codec '%s' (%d worker thread%s), please wait...\n",
+           avifCodecName(codecChoice, AVIF_CODEC_FLAG_CAN_DECODE),
+           jobs,
+           (jobs == 1) ? "" : "s");
 
     int returnCode = 0;
     avifImage * avif = avifImageCreateEmpty();
     avifDecoder * decoder = avifDecoderCreate();
+    decoder->maxThreads = jobs;
     decoder->codecChoice = codecChoice;
     avifResult decodeResult = avifDecoderReadFile(decoder, avif, inputFilename);
     if (decodeResult == AVIF_RESULT_OK) {

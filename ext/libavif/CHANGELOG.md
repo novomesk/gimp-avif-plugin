@@ -6,6 +6,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2020-11-23
+
+### Added
+* YCgCo support (full-range only, wantehchang)
+* Expose `maxThreads` to `avifDecoder`, add `--jobs` to `avifdec`
+* Add `avifDecoderNthImageMaxExtent()` streaming helper function to determine future reads
+* Create AVIF_VERSION_DEVEL, which allows for in-development changes to be detected during the build
+* New avifResult values: `AVIF_RESULT_INVALID_ARGUMENT`, `AVIF_RESULT_NOT_IMPLEMENTED`
+
+### Changed
+* Read/write one of each type of colr box, as allowed in HEIF 6.5.5.1 Amendment 3 (also now supported in libheif)
+* avifenc/avifdec: Now guesses input file format by header inspection instead of extension
+* avifenc: Fix y4m/stdin corner cases when trying to detect a "single image" encode
+* Add some protections against improperly using AVIF_ADD_IMAGE_FLAG_SINGLE
+* imir transformation: Disambiguate all usages of "vertical" and "horizontal" across comments and tooling
+* Print MC value when warning resetting to defaults (wantehchang)
+* Fix grid image rows/cols parsing on invalid data
+* Allow override of HAVE_POISON_SYSTEM_DIRECTORIES_WARNING (bnason-nf)
+* Lots of comments clarifications in avif.h
+
+## [0.8.3] - 2020-11-09
+
+### Added
+* SVT-AV1 encode support (jonsneyers)
+* Basic libyuv support (8bpc only, see usage/limitations in avif.h)
+* Refactor avifChromaUpsampling for ease in high level decision making and adding more filters in the future (minor, benign breaking change due to enum reordering)
+* New CMake options: `AVIF_CODEC_AOM_DECODE`, `AVIF_CODEC_AOM_ENCODE`
+* New examples in `examples/` dir (encode, decode_file, decode_memory, decode_streaming) to replace stale, not-compiled examples in README
+
+### Changed
+* avifenc: Explicitly signal SRGB CP/TC if the source image and user don't specify, and no ICC profile is present
+* Set g_lag_in_frames to 1 if encoding single image (encode memory optimization, wantehchang)
+* Early-out with OK in avifParse() if the expected top-level boxes were already parsed (streaming optimization)
+* Check increading item_ID and ipmaSeen in ipma box (wantehchang)
+* Fail gracefully in avifEncoderAddImage() if libavif wasn't compiled with encoding support
+* Add size_t casts to fix MSVC x86 compiler warnings (wantehchang)
+* Link with {ZLIB_LIBRARY} after ${PNG_LIBRARY} (wantehchang)
+* Fix a crash in avifJPEGRead() on fopen() failure (wantehchang)
+* No need to include `${ZLIB_INCLUDE_DIR}` (wantehchang)
+* Put the value of `ZLIB_INCLUDE_DIR` in the cache (wantehchang)
+* Don't set image->alphaRange to yuvRange (wantehchang)
+* Expose chroma sample position in decoded images (wantehchang)
+* avifDecoderNthImage: tighten decoder flush (wantehchang)
+* Cleanup avifIOReadFunc comments for clarity (wantehchang)
+* Minor code cleanup
+* Minor CMake cleanup
+
+### Removed
+
+* Remove disableGridImages from avifDecoder (wantehchang)
+
 ## [0.8.2] - 2020-10-14
 ### Added
 * `avifIO` reader API: allowing for parsing / image decoding without having the entire AVIF payload yet
@@ -501,7 +552,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constants `AVIF_VERSION`, `AVIF_VERSION_MAJOR`, `AVIF_VERSION_MINOR`, `AVIF_VERSION_PATCH`
 - `avifVersion()` function
 
-[Unreleased]: https://github.com/AOMediaCodec/libavif/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/AOMediaCodec/libavif/compare/v0.8.4...HEAD
+[0.8.4]: https://github.com/AOMediaCodec/libavif/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/AOMediaCodec/libavif/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/AOMediaCodec/libavif/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/AOMediaCodec/libavif/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/AOMediaCodec/libavif/compare/v0.7.3...v0.8.0
