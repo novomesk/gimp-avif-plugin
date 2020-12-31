@@ -38,7 +38,7 @@ echo 'Info how to install the plug-in for local users of GIMP 2.99:'
 echo '  mkdir ~/.config/GIMP/2.99/plug-ins/file-avif'
 echo '  cp file-avif ~/.config/GIMP/2.99/plug-ins/file-avif/'
 echo 'Info how to install the plug-in for all users (needs root permission) of GIMP 2.99 on local machine:'
-echo '  mkdir /usr/lib/gimp/2.99/plug-ins/file-avif'
-echo '  cp file-avif /usr/lib/gimp/2.99/plug-ins/file-avif/'
+echo '  mkdir /usr/lib64/gimp/2.99/plug-ins/file-avif'
+echo '  cp file-avif /usr/lib64/gimp/2.99/plug-ins/file-avif/'
 
 exit 0
