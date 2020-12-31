@@ -188,7 +188,7 @@ gboolean   save_dialog (GimpImage     *image,
 
   min_quantizer_scale =
     gimp_prop_scale_entry_new (config, "min-quantizer",
-                               NULL, 0, FALSE, 0, 0);
+                               NULL, 1.0, FALSE, 0, 0);
   gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (min_quantizer_scale)));
   gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
                             "Quantizer (Min):",
@@ -200,7 +200,7 @@ gboolean   save_dialog (GimpImage     *image,
 
   max_quantizer_scale =
     gimp_prop_scale_entry_new (config, "max-quantizer",
-                               NULL, 0, FALSE, 0, 0);
+                               NULL, 1.0, FALSE, 0, 0);
   gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (max_quantizer_scale)));
   gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
                             "Quantizer (Max):",
@@ -214,7 +214,7 @@ gboolean   save_dialog (GimpImage     *image,
     {
       alpha_quantizer_scale =
         gimp_prop_scale_entry_new (config, "alpha-quantizer",
-                                   NULL, 0, FALSE, 0, 0);
+                                   NULL, 1.0, FALSE, 0, 0);
       gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (alpha_quantizer_scale)));
       gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
                                 "Quantizer (Alpha):",
@@ -292,7 +292,7 @@ gboolean   save_dialog (GimpImage     *image,
 
   speed_scale =
     gimp_prop_scale_entry_new (config, "encoder-speed",
-                               NULL, 0, FALSE, 0, 0);
+                               NULL, 1.0, FALSE, 0, 0);
   gtk_widget_hide (gimp_labeled_get_label (GIMP_LABELED (speed_scale)));
   gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
                             "Encoder speed:",
