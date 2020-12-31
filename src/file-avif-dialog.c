@@ -58,7 +58,7 @@ save_dialog_min_quantizer_changed (GObject          *config,
                                    const GParamSpec *pspec,
                                    gpointer       user_data)
 {
-  double retval_max, retval_min;
+  gint retval_max, retval_min;
   g_object_get (config, "max-quantizer", &retval_max,
                 "min-quantizer", &retval_min,
                 NULL);
@@ -75,7 +75,7 @@ save_dialog_max_quantizer_changed (GObject          *config,
                                    const GParamSpec *pspec,
                                    gpointer       user_data)
 {
-  double retval_max, retval_min;
+  gint retval_max, retval_min;
   g_object_get (config, "max-quantizer", &retval_max,
                 "min-quantizer", &retval_min,
                 NULL);

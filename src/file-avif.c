@@ -183,23 +183,23 @@ avif_create_procedure (GimpPlugIn  *plug_in,
       gimp_file_procedure_set_extensions (GIMP_FILE_PROCEDURE (procedure),
                                           "avif");
 
-      GIMP_PROC_ARG_DOUBLE (procedure, "min-quantizer",
-                            "Quantizer (Min)",
-                            "Set higher values to limit/reduce image quality",
-                            AVIF_QUANTIZER_BEST_QUALITY, AVIF_QUANTIZER_WORST_QUALITY, AVIF_QUANTIZER_BEST_QUALITY,
-                            G_PARAM_READWRITE);
+      GIMP_PROC_ARG_INT (procedure, "min-quantizer",
+                         "Quantizer (Min)",
+                         "Set higher values to limit/reduce image quality",
+                         AVIF_QUANTIZER_BEST_QUALITY, AVIF_QUANTIZER_WORST_QUALITY, AVIF_QUANTIZER_BEST_QUALITY,
+                         G_PARAM_READWRITE);
 
-      GIMP_PROC_ARG_DOUBLE (procedure, "max-quantizer",
-                            "Quantizer (Max)",
-                            "AVIF quality parameter: 0 - highest quality, 63 - smallest file",
-                            AVIF_QUANTIZER_BEST_QUALITY, AVIF_QUANTIZER_WORST_QUALITY, 40,
-                            G_PARAM_READWRITE);
+      GIMP_PROC_ARG_INT (procedure, "max-quantizer",
+                         "Quantizer (Max)",
+                         "AVIF quality parameter: 0 - highest quality, 63 - smallest file",
+                         AVIF_QUANTIZER_BEST_QUALITY, AVIF_QUANTIZER_WORST_QUALITY, 40,
+                         G_PARAM_READWRITE);
 
-      GIMP_PROC_ARG_DOUBLE (procedure, "alpha-quantizer",
-                            "Quantizer (Alpha)",
-                            "AVIF quality parameter: 0 - highest quality (recommended!) , 63 - smallest file",
-                            AVIF_QUANTIZER_BEST_QUALITY, AVIF_QUANTIZER_WORST_QUALITY, AVIF_QUANTIZER_BEST_QUALITY,
-                            G_PARAM_READWRITE);
+      GIMP_PROC_ARG_INT (procedure, "alpha-quantizer",
+                         "Quantizer (Alpha)",
+                         "AVIF quality parameter: 0 - highest quality (recommended!) , 63 - smallest file",
+                         AVIF_QUANTIZER_BEST_QUALITY, AVIF_QUANTIZER_WORST_QUALITY, AVIF_QUANTIZER_BEST_QUALITY,
+                         G_PARAM_READWRITE);
 
       GIMP_PROC_ARG_INT (procedure, "pixel-format",
                          "Pixel Format",
@@ -220,11 +220,11 @@ avif_create_procedure (GimpPlugIn  *plug_in,
                          AVIF_CODEC_CHOICE_AUTO, AVIF_CODEC_CHOICE_RAV1E, AVIF_CODEC_CHOICE_AUTO,
                          G_PARAM_READWRITE);
 
-      GIMP_PROC_ARG_DOUBLE (procedure, "encoder-speed",
-                            "Encoder speed",
-                            "Speed of export: 0 - very slow, 5 - medium, 10 - fastest",
-                            AVIF_SPEED_SLOWEST, AVIF_SPEED_FASTEST, 6, /* speed 6 is default for rav1e */
-                            G_PARAM_READWRITE);
+      GIMP_PROC_ARG_INT (procedure, "encoder-speed",
+                         "Encoder speed",
+                         "Speed of export: 0 - very slow, 5 - medium, 10 - fastest",
+                         AVIF_SPEED_SLOWEST, AVIF_SPEED_FASTEST, 6, /* speed 6 is default for rav1e */
+                         G_PARAM_READWRITE);
 
       GIMP_PROC_ARG_BOOLEAN (procedure, "save-alpha-channel",
                              "Save Alpha channel",

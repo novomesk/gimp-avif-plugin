@@ -246,13 +246,10 @@ gboolean   save_layer (GFile         *file,
   guchar         *pixels;
 
   GimpColorProfile *profile = NULL;
-  int             min_quantizer = AVIF_QUANTIZER_BEST_QUALITY;
-  int             max_quantizer = 40;
-  int             alpha_quantizer = AVIF_QUANTIZER_BEST_QUALITY;
-  double          retval_double = max_quantizer;
-  double          retval_double2 = min_quantizer;
-  double          retval_double3;
-  double          retval_double4 = alpha_quantizer;
+  gint            min_quantizer = AVIF_QUANTIZER_BEST_QUALITY;
+  gint            max_quantizer = 40;
+  gint            alpha_quantizer = AVIF_QUANTIZER_BEST_QUALITY;
+
   avifPixelFormat pixel_format = AVIF_PIXEL_FORMAT_YUV420;
   avifCodecChoice codec_choice = AVIF_CODEC_CHOICE_AUTO;
   gboolean        save_icc_profile = TRUE;
@@ -270,21 +267,17 @@ gboolean   save_layer (GFile         *file,
   filename = g_file_get_path (file);
   gimp_progress_init_printf ("Exporting '%s'. Wait, it is slow.", filename);
 
-  g_object_get (config, "max-quantizer", &retval_double,
-                "min-quantizer", &retval_double2,
-                "alpha-quantizer", &retval_double4,
+  g_object_get (config, "max-quantizer", &max_quantizer,
+                "min-quantizer", &min_quantizer,
+                "alpha-quantizer", &alpha_quantizer,
                 "pixel-format", &pixel_format,
                 "save-bit-depth", &save_bit_depth,
                 "av1-encoder", &codec_choice,
-                "encoder-speed", &retval_double3,
+                "encoder-speed", &encoder_speed,
                 "save-color-profile", &save_icc_profile,
                 "save-exif", &save_exif,
                 "save-xmp", &save_xmp,
                 NULL);
-  max_quantizer = (int) (retval_double + 0.5);
-  min_quantizer = (int) (retval_double2 + 0.5);
-  encoder_speed = (int) (retval_double3 + 0.5);
-  alpha_quantizer = (int) (retval_double4 + 0.5);
 
   num_threads = gimp_get_num_processors();
   num_threads = CLAMP (num_threads, 1, 64);
