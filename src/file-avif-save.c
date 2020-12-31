@@ -286,11 +286,8 @@ gboolean   save_layer (GFile         *file,
   encoder_speed = (int) (retval_double3 + 0.5);
   alpha_quantizer = (int) (retval_double4 + 0.5);
 
-  g_object_get (gegl_config(), "threads", &num_threads, NULL);
-  if (num_threads < 1)
-    {
-      num_threads = 1;
-    }
+  num_threads = gimp_get_num_processors();
+  num_threads = CLAMP (num_threads, 1, 64);
 
   buffer = gimp_drawable_get_buffer (drawable);
 
