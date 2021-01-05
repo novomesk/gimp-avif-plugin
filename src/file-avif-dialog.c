@@ -92,42 +92,93 @@ avifplugin_create_codec_store (GObject       *config)
   avifCodecChoice codec_choice = AVIF_CODEC_CHOICE_AUTO;
   const char     *codec_aom;
   const char     *codec_rav1e;
+  const char     *codec_svt;
 
   g_object_get (config, "av1-encoder", &codec_choice, NULL);
 
   codec_aom   = avifCodecName (AVIF_CODEC_CHOICE_AOM,   AVIF_CODEC_FLAG_CAN_ENCODE);
   codec_rav1e = avifCodecName (AVIF_CODEC_CHOICE_RAV1E, AVIF_CODEC_FLAG_CAN_ENCODE);
+  codec_svt   = avifCodecName (AVIF_CODEC_CHOICE_SVT,   AVIF_CODEC_FLAG_CAN_ENCODE);
 
   if ( (! codec_aom && codec_choice == AVIF_CODEC_CHOICE_AOM) ||
-       (! codec_rav1e && codec_choice == AVIF_CODEC_CHOICE_RAV1E))    /* if the selected encoder is not available, select auto */
+       (! codec_rav1e && codec_choice == AVIF_CODEC_CHOICE_RAV1E) ||
+       (! codec_svt && codec_choice == AVIF_CODEC_CHOICE_SVT))    /* if the selected encoder is not available, select auto */
     {
       codec_choice = AVIF_CODEC_CHOICE_AUTO;
       g_object_set (config, "av1-encoder", codec_choice, NULL);
     }
 
-  if (codec_aom && codec_rav1e)   /* both encoders are available */
+  if (codec_aom) /* AOM encoder available */
     {
-      return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
-                                 codec_aom,   AVIF_CODEC_CHOICE_AOM,
-                                 codec_rav1e, AVIF_CODEC_CHOICE_RAV1E,
-                                 NULL);
+      if (codec_rav1e) /* RAV1E available */
+        {
+          if (codec_svt) /* SVT available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_aom,   AVIF_CODEC_CHOICE_AOM,
+                                         codec_rav1e, AVIF_CODEC_CHOICE_RAV1E,
+                                         codec_svt,   AVIF_CODEC_CHOICE_SVT,
+                                         NULL);
+            }
+          else /* SVT not available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_aom,   AVIF_CODEC_CHOICE_AOM,
+                                         codec_rav1e, AVIF_CODEC_CHOICE_RAV1E,
+                                         NULL);
+            }
+        }
+      else /* RAV1E not available */
+        {
+          if (codec_svt) /* SVT available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_aom,   AVIF_CODEC_CHOICE_AOM,
+                                         codec_svt,   AVIF_CODEC_CHOICE_SVT,
+                                         NULL);
+            }
+          else /* SVT not available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_aom,   AVIF_CODEC_CHOICE_AOM,
+                                         NULL);
+            }
+        }
     }
-  else if (codec_aom && ! codec_rav1e)   /* only AOM is available */
+  else /* AOM not available */
     {
-      return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
-                                 codec_aom,   AVIF_CODEC_CHOICE_AOM,
-                                 NULL);
-    }
-  else if (! codec_aom && codec_rav1e)   /* only RAV1E is available */
-    {
-      return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
-                                 codec_rav1e, AVIF_CODEC_CHOICE_RAV1E,
-                                 NULL);
+      if (codec_rav1e) /* RAV1E available */
+        {
+          if (codec_svt) /* SVT available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_rav1e, AVIF_CODEC_CHOICE_RAV1E,
+                                         codec_svt,   AVIF_CODEC_CHOICE_SVT,
+                                         NULL);
+            }
+          else /* SVT not available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_rav1e, AVIF_CODEC_CHOICE_RAV1E,
+                                         NULL);
+            }
+        }
+      else /* RAV1E not available */
+        {
+          if (codec_svt) /* SVT available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         codec_svt,   AVIF_CODEC_CHOICE_SVT,
+                                         NULL);
+            }
+          else /* SVT not available */
+            {
+              return gimp_int_store_new ("(auto)",    AVIF_CODEC_CHOICE_AUTO,
+                                         NULL);
+            }
+        }
     }
 
-  /* no known encoders were detected */
-  return gimp_int_store_new ("(auto)", AVIF_CODEC_CHOICE_AUTO,
-                             NULL);
 }
 
 gboolean   save_dialog (GimpImage     *image,

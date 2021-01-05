@@ -217,7 +217,7 @@ avif_create_procedure (GimpPlugIn  *plug_in,
       GIMP_PROC_ARG_INT (procedure, "av1-encoder",
                          "AV1 encoder",
                          "Select encoder for AV1 stream",
-                         AVIF_CODEC_CHOICE_AUTO, AVIF_CODEC_CHOICE_RAV1E, AVIF_CODEC_CHOICE_AUTO,
+                         AVIF_CODEC_CHOICE_AUTO, AVIF_CODEC_CHOICE_SVT, AVIF_CODEC_CHOICE_AUTO,
                          G_PARAM_READWRITE);
 
       GIMP_PROC_ARG_INT (procedure, "encoder-speed",
