@@ -204,7 +204,7 @@ gboolean   save_dialog (GimpImage     *image,
   gint32         nlayers;
   GimpLayer    **layers = gimp_image_get_layers (image, &nlayers);
 
-  /* UNUSED gboolean animation_supported = nlayers > 1; */
+  gboolean       animation_supported = nlayers > 1;
   gboolean       alpha_supported = FALSE;
 
   gint32 i;
@@ -282,7 +282,7 @@ gboolean   save_dialog (GimpImage     *image,
                                        GIMP_INT_STORE (store));
   g_object_unref (store);
 
-  /*GtkWidget     *label =*/
+
   gimp_grid_attach_aligned (GTK_GRID (grid), 0, row++,
                             "Pixel format:", 0.0, 0.5,
                             combo, 2);
@@ -349,6 +349,49 @@ gboolean   save_dialog (GimpImage     *image,
                             "Encoder speed:",
                             0.0, 0.5, speed_scale, 2);
 
+  if (animation_supported)
+    {
+      GtkWidget *hbox1;
+      GtkWidget *label1;
+      GtkWidget *spinner1;
+
+      GtkWidget *label2;
+      GtkWidget *spinner2;
+
+      toggle = gimp_prop_check_button_new (config, "animation",
+                                           "Save selected layers as animation");
+      gtk_box_pack_start (GTK_BOX (vbox), toggle, FALSE, FALSE, 0);
+
+      hbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+      gtk_box_pack_start (GTK_BOX (vbox), hbox1, FALSE, FALSE, 0);
+      gtk_widget_show (hbox1);
+
+      label1 = gtk_label_new ("Frame duration:");
+      gtk_label_set_xalign (GTK_LABEL (label1), 0.2);
+      gtk_box_pack_start (GTK_BOX (hbox1), label1, FALSE, FALSE, 0);
+      gtk_widget_show (label1);
+
+      spinner1 = gimp_prop_spin_button_new (config, "animation-frame-duration",
+                                            1.0, 1.0, 0);
+      gtk_box_pack_start (GTK_BOX (hbox1), spinner1, FALSE, FALSE, 0);
+
+      label2 = gtk_label_new ("Timescale:");
+      gtk_label_set_xalign (GTK_LABEL (label2), 0.2);
+      gtk_box_pack_start (GTK_BOX (hbox1), label2, FALSE, FALSE, 0);
+      gtk_widget_show (label2);
+
+      spinner2 = gimp_prop_spin_button_new (config, "animation-timescale",
+                                            1.0, 1.0, 0);
+      gtk_box_pack_start (GTK_BOX (hbox1), spinner2, FALSE, FALSE, 0);
+
+      g_object_bind_property (toggle, "active",
+                              hbox1, "visible",
+                              G_BINDING_SYNC_CREATE);
+    }
+  else
+    {
+      g_object_set (config, "animation", FALSE, NULL);
+    }
 
   /* Save trasparency */
   if (alpha_supported)

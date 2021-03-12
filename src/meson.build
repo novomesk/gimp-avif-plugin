@@ -5,23 +5,11 @@ plugin_sources = [
   'file-avif.c',
   'file-avif-dialog.c',
   'file-avif-load.c',
-  'file-avif-save.c',
-  'file-avif-exif.cpp'
+  'file-avif-save.c'
 ]
 
 avif_minver      = '0.8.3'
 avif             = dependency('libavif',            version: '>='+avif_minver, required : false )
-
-gimpui           = dependency('gimpui-3.0')
-
-exiv2_minver     = '0.25'
-exiv2            = dependency('exiv2',              version: '>='+exiv2_minver)
-
-gexiv2_minver    = '0.10.6'
-gexiv2           = dependency('gexiv2',             version: '>='+gexiv2_minver)
-
-lcms_minver      = '2.8'
-lcms             = dependency('lcms2',              version: '>='+lcms_minver)
 
 if avif.found()
   message('We will use dynamic linking with libavif')
@@ -43,8 +31,7 @@ executable(plugin_name,
   plugin_sources,
   dependencies: [
     avif,
-    exiv2,
-    gexiv2, gimpui,
+    gexiv2, libgimpui_dep,
     lcms
   ],
   install: true,

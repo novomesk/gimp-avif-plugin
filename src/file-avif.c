@@ -238,6 +238,18 @@ avif_create_procedure (GimpPlugIn  *plug_in,
                              FALSE,
                              G_PARAM_READWRITE);
 
+      GIMP_PROC_ARG_INT (procedure, "animation-timescale",
+                         "Timescale",
+                         "timescale of the media (Hz)",
+                         1, 60, 1,
+                         G_PARAM_READWRITE);
+
+      GIMP_PROC_ARG_INT (procedure, "animation-frame-duration",
+                         "Frame duration",
+                         "Frame duration (in timescales)",
+                         1, 1000, 1,
+                         G_PARAM_READWRITE);
+
       GIMP_PROC_ARG_BOOLEAN (procedure, "save-color-profile",
                              "Save color profle",
                              "Enable to save ICC color profile, disable to save NCLX information",
@@ -301,22 +313,20 @@ avif_save (GimpProcedure        *procedure,
            const GimpValueArray *args,
            gpointer              run_data)
 {
-  GimpProcedureConfig *config;
-  GimpPDBStatusType    status = GIMP_PDB_SUCCESS;
-  GimpExportReturn     export = GIMP_EXPORT_CANCEL;
-  GimpMetadata        *metadata;
-  gboolean             animation;
-  gboolean             save_alpha_channel;
-  GError              *error  = NULL;
-  avifPixelFormat      pixel_format = AVIF_PIXEL_FORMAT_YUV420;
-
+  GimpProcedureConfig  *config;
+  GimpPDBStatusType     status = GIMP_PDB_SUCCESS;
+  GimpExportReturn      export = GIMP_EXPORT_CANCEL;
+  GimpMetadata         *metadata;
+  gboolean              animation;
+  gboolean              save_alpha_channel;
+  GError               *error  = NULL;
+  avifPixelFormat       pixel_format = AVIF_PIXEL_FORMAT_YUV420;
+  GimpMetadataSaveFlags metadata_flags;
 
   gegl_init (NULL, NULL);
 
   config = gimp_procedure_create_config (procedure);
-  metadata = gimp_procedure_config_begin_export (config, image, run_mode,
-             args, "image/avif");
-
+  gimp_procedure_config_begin_run (config, image, run_mode, args);
 
   if (run_mode == GIMP_RUN_INTERACTIVE ||
       run_mode == GIMP_RUN_WITH_LAST_VALS)
@@ -365,35 +375,19 @@ avif_save (GimpProcedure        *procedure,
                NULL);
     }
 
-  if (animation)
+  metadata = gimp_image_metadata_save_prepare (image, "image/avif", &metadata_flags);
+  if (! save_layers (file, image, n_drawables, drawables, G_OBJECT (config), metadata,
+                     &error))
     {
-      if (! save_animation (file, image, n_drawables, drawables, G_OBJECT (config), metadata,
-                            &error))
-        {
-          status = GIMP_PDB_EXECUTION_ERROR;
-        }
-    }
-  else
-    {
-      if (n_drawables != 1)
-        {
-          g_set_error (&error, G_FILE_ERROR, 0,
-                       "The AVIF plug-in cannot export multiple layer, except in animation mode.");
-
-          return gimp_procedure_new_return_values (procedure,
-                 GIMP_PDB_CALLING_ERROR,
-                 error);
-        }
-
-      if (! save_layer (file, image, drawables[0], G_OBJECT (config), metadata,
-                        &error))
-        {
-          status = GIMP_PDB_EXECUTION_ERROR;
-        }
+      status = GIMP_PDB_EXECUTION_ERROR;
     }
 
+  if (metadata)
+    {
+      g_object_unref (metadata);
+    }
 
-  gimp_procedure_config_end_export (config, image, file, status);
+  gimp_procedure_config_end_run (config, status);
   g_object_unref (config);
 
   if (export == GIMP_EXPORT_EXPORT)

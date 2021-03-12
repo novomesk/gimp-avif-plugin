@@ -55,7 +55,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/time.h>
 
 #include "file-avif-save.h"
-#include "file-avif-exif.h"
 
 #define MAX_TILE_WIDTH  4096
 #define MAX_TILE_AREA  (4096 * 2304)
@@ -74,20 +73,20 @@ avifplugin_image_metadata_copy_tag (GExiv2Metadata *src,
                                     GExiv2Metadata *dest,
                                     const gchar    *tag)
 {
-  gchar **values = gexiv2_metadata_get_tag_multiple (src, tag);
+  gchar **values = gexiv2_metadata_try_get_tag_multiple (src, tag, NULL);
 
   if (values)
     {
-      gexiv2_metadata_set_tag_multiple (dest, tag, (const gchar **) values);
+      gexiv2_metadata_try_set_tag_multiple (dest, tag, (const gchar **) values, NULL);
       g_strfreev (values);
     }
   else
     {
-      gchar *value = gexiv2_metadata_get_tag_string (src, tag);
+      gchar *value = gexiv2_metadata_try_get_tag_string (src, tag, NULL);
 
       if (value)
         {
-          gexiv2_metadata_set_tag_string (dest, tag, value);
+          gexiv2_metadata_try_set_tag_string (dest, tag, value, NULL);
           g_free (value);
         }
     }
@@ -226,12 +225,13 @@ ColorPrimariesBestMatch (const float inPrimaries[8])
   return winner;
 }
 
-gboolean   save_layer (GFile         *file,
-                       GimpImage     *image,
-                       GimpDrawable  *drawable,
-                       GObject       *config,
-                       GimpMetadata  *metadata,
-                       GError       **error)
+gboolean   save_layers (GFile         *file,
+                        GimpImage     *image,
+                        gint           n_drawables,
+                        GimpDrawable **drawables,
+                        GObject       *config,
+                        GimpMetadata  *metadata,
+                        GError       **error)
 {
   gchar          *filename;
   FILE           *outfile;
@@ -258,11 +258,39 @@ gboolean   save_layer (GFile         *file,
   gint            num_threads = 1;
   gint            encoder_speed;
   gint            i, j;
+  gint            animation_frame_duration = 1;
+  gint            animation_timescale = 1;
+  gint            frame_index;
   avifImage      *avif;
   avifResult      res;
   avifRWData      raw = AVIF_DATA_EMPTY;
   avifEncoder    *encoder;
 
+  if (n_drawables < 1)
+    {
+      return FALSE;
+    }
+
+  drawable_type   = gimp_drawable_type (drawables[0]);
+  drawable_width  = gimp_drawable_width (drawables[0]);
+  drawable_height = gimp_drawable_height (drawables[0]);
+
+  if (n_drawables >= 2)
+    {
+      for (i = 1; i < n_drawables; i++)
+        {
+          if (drawable_width != gimp_drawable_width (drawables[i]) || drawable_height != gimp_drawable_height (drawables[i]))
+            {
+              g_warning ("Can't save animation. Layers have different width or height!\n");
+              return FALSE;
+            }
+        }
+
+      g_object_get (config,
+                    "animation-frame-duration", &animation_frame_duration,
+                    "animation-timescale", &animation_timescale,
+                    NULL);
+    }
 
   filename = g_file_get_path (file);
   gimp_progress_init_printf ("Exporting '%s'. Wait, it is slow.", filename);
@@ -281,13 +309,6 @@ gboolean   save_layer (GFile         *file,
 
   num_threads = gimp_get_num_processors();
   num_threads = CLAMP (num_threads, 1, 64);
-
-  buffer = gimp_drawable_get_buffer (drawable);
-
-  drawable_type   = gimp_drawable_type (drawable);
-  drawable_width  = gimp_drawable_width (drawable);
-  drawable_height = gimp_drawable_height (drawable);
-
 
   profile = gimp_image_get_effective_color_profile (image);
 
@@ -335,7 +356,7 @@ gboolean   save_layer (GFile         *file,
     {
       g_printerr ("%s: error getting the profile space: %s\n", G_STRFUNC, (*error)->message);
       g_clear_error (error);
-      space = gimp_drawable_get_format (drawable);
+      space = gimp_drawable_get_format (drawables[0]);
     }
 
   if ( (drawable_type == GIMP_GRAYA_IMAGE) ||
@@ -349,8 +370,8 @@ gboolean   save_layer (GFile         *file,
 
   if (save_icc_profile)
     {
-      const uint8_t *icc_data;
-      size_t         icc_length;
+      const uint8_t  *icc_data = NULL;
+      size_t          icc_length = 0;
 
       avif->matrixCoefficients = (avifMatrixCoefficients) 1;   /* AVIF_MATRIX_COEFFICIENTS_BT709 */
 
@@ -464,7 +485,6 @@ gboolean   save_layer (GFile         *file,
     }
 
   g_object_unref (profile);
-
 
   switch (drawable_type)
     {
@@ -594,10 +614,9 @@ gboolean   save_layer (GFile         *file,
     {
       if (gexiv2_metadata_get_supports_exif (GEXIV2_METADATA (metadata)) && gexiv2_metadata_has_exif (GEXIV2_METADATA (metadata)))
         {
-          GimpMetadata  *new_exif_metadata = gimp_metadata_new ();
+          GimpMetadata   *new_exif_metadata = gimp_metadata_new ();
           GExiv2Metadata *new_gexiv2metadata = GEXIV2_METADATA (new_exif_metadata);
-          size_t exifSize = 0;
-          guchar *raw_exif_data;
+          GBytes         *raw_exif_data;
           gchar **exif_data = gexiv2_metadata_get_exif_tags (GEXIV2_METADATA (metadata));
 
           gexiv2_metadata_clear_exif (new_gexiv2metadata);
@@ -615,15 +634,17 @@ gboolean   save_layer (GFile         *file,
 
           g_strfreev (exif_data);
 
-
-          raw_exif_data = get_TIFF_Exif_raw_data (new_gexiv2metadata, &exifSize);
+          raw_exif_data = gexiv2_metadata_get_exif_data (new_gexiv2metadata, GEXIV2_BYTE_ORDER_LITTLE, error);
           if (raw_exif_data)
             {
-              if (exifSize >= 4)
+              gsize exif_size = 0;
+              gconstpointer exif_buffer = g_bytes_get_data (raw_exif_data, &exif_size);
+
+              if (exif_size >= 4)
                 {
-                  avifImageSetMetadataExif (avif, raw_exif_data, exifSize);
+                  avifImageSetMetadataExif (avif, (const uint8_t *) exif_buffer, exif_size);
                 }
-              g_free (raw_exif_data);
+              g_bytes_unref (raw_exif_data);
             }
 
 
@@ -667,35 +688,35 @@ gboolean   save_layer (GFile         *file,
 
           gimp_metadata_add_xmp_history (metadata, "");
 
-          gexiv2_metadata_set_tag_string (GEXIV2_METADATA (metadata),
-                                          "Xmp.GIMP.TimeStamp",
-                                          ts);
+          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
+                                              "Xmp.GIMP.TimeStamp",
+                                              ts, NULL);
 
-          gexiv2_metadata_set_tag_string (GEXIV2_METADATA (metadata),
-                                          "Xmp.xmp.CreatorTool",
-                                          "GIMP");
+          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
+                                              "Xmp.xmp.CreatorTool",
+                                              "GIMP", NULL);
 
-          gexiv2_metadata_set_tag_string (GEXIV2_METADATA (metadata),
-                                          "Xmp.GIMP.Version",
-                                          GIMP_VERSION);
+          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
+                                              "Xmp.GIMP.Version",
+                                              GIMP_VERSION, NULL);
 
-          gexiv2_metadata_set_tag_string (GEXIV2_METADATA (metadata),
-                                          "Xmp.GIMP.API",
-                                          GIMP_API_VERSION);
-          gexiv2_metadata_set_tag_string (GEXIV2_METADATA (metadata),
-                                          "Xmp.GIMP.Platform",
+          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
+                                              "Xmp.GIMP.API",
+                                              GIMP_API_VERSION, NULL);
+          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
+                                              "Xmp.GIMP.Platform",
 #if defined(_WIN32) || defined(__CYGWIN__) || defined(__MINGW32__)
-                                          "Windows"
+                                              "Windows"
 #elif defined(__linux__)
-                                          "Linux"
+                                              "Linux"
 #elif defined(__APPLE__) && defined(__MACH__)
-                                          "Mac OS"
+                                              "Mac OS"
 #elif defined(unix) || defined(__unix__) || defined(__unix)
-                                          "Unix"
+                                              "Unix"
 #else
-                                          "Unknown"
+                                              "Unknown"
 #endif
-                                         );
+                                              , NULL);
 
 
           xmp_data = gexiv2_metadata_get_xmp_tags (GEXIV2_METADATA (metadata));
@@ -703,9 +724,9 @@ gboolean   save_layer (GFile         *file,
           /* Patch necessary structures */
           for (i = 0; i < (gint) G_N_ELEMENTS (structlist); i++)
             {
-              gexiv2_metadata_set_xmp_tag_struct (GEXIV2_METADATA (new_g2metadata),
-                                                  structlist[i].tag,
-                                                  structlist[i].type);
+              gexiv2_metadata_try_set_xmp_tag_struct (GEXIV2_METADATA (new_g2metadata),
+                                                      structlist[i].tag,
+                                                      structlist[i].type, NULL);
             }
 
           for (i = 0; xmp_data[i] != NULL; i++)
@@ -721,7 +742,7 @@ gboolean   save_layer (GFile         *file,
 
           g_strfreev (xmp_data);
 
-          xmp_packet = gexiv2_metadata_generate_xmp_packet (new_g2metadata, GEXIV2_USE_COMPACT_FORMAT | GEXIV2_OMIT_ALL_FORMATTING, 0);
+          xmp_packet = gexiv2_metadata_try_generate_xmp_packet (new_g2metadata, GEXIV2_USE_COMPACT_FORMAT | GEXIV2_OMIT_ALL_FORMATTING, 0, NULL);
           if (xmp_packet)
             {
               size_t xmpSize = strlen (xmp_packet);
@@ -733,198 +754,6 @@ gboolean   save_layer (GFile         *file,
             }
 
           g_object_unref (new_metadata);
-        }
-    }
-
-
-  /* fetch the image */
-  gegl_buffer_get (buffer, GEGL_RECTANGLE (0, 0,
-                   drawable_width, drawable_height), 1.0,
-                   file_format, pixels,
-                   GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
-
-  g_object_unref (buffer);
-
-  if (save_alpha)
-    {
-      avif->alphaRange = AVIF_RANGE_FULL;
-      avifImageAllocatePlanes (avif, AVIF_PLANES_YUV | AVIF_PLANES_A);
-    }
-  else
-    {
-      avifImageAllocatePlanes (avif, AVIF_PLANES_YUV);
-    }
-
-
-  if (is_gray)   /* Gray export */
-    {
-      if (avifImageUsesU16 (avif))
-        {
-          const uint16_t  *graypixels_src = (const uint16_t *) pixels;
-          uint16_t  *graypixels_dest;
-          int tmp_pixelval;
-
-          if (save_alpha)
-            {
-              uint16_t  *alpha_dest;
-
-              if (save_bit_depth == 10)
-                {
-                  for (j = 0; j < drawable_height; ++j)
-                    {
-                      graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
-                      alpha_dest      = (uint16_t *) (j * avif->alphaRowBytes + avif->alphaPlane);
-                      for (i = 0; i < drawable_width; ++i)
-                        {
-                          tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 1023.0f + 0.5f);
-                          *graypixels_dest = CLAMP (tmp_pixelval, 0, 1023);
-                          graypixels_dest++;
-                          graypixels_src++;
-
-                          tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 1023.0f + 0.5f);
-                          *alpha_dest = CLAMP (tmp_pixelval, 0, 1023);
-                          alpha_dest++;
-                          graypixels_src++;
-                        }
-                    }
-                }
-              else /* save_bit_depth == 12 */
-                {
-                  for (j = 0; j < drawable_height; ++j)
-                    {
-                      graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
-                      alpha_dest      = (uint16_t *) (j * avif->alphaRowBytes + avif->alphaPlane);
-                      for (i = 0; i < drawable_width; ++i)
-                        {
-                          tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 4095.0f + 0.5f);
-                          *graypixels_dest = CLAMP (tmp_pixelval, 0, 4095);
-                          graypixels_dest++;
-                          graypixels_src++;
-
-                          tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 4095.0f + 0.5f);
-                          *alpha_dest = CLAMP (tmp_pixelval, 0, 4095);
-                          alpha_dest++;
-                          graypixels_src++;
-                        }
-                    }
-                }
-            }
-          else /* no alpha channel */
-            {
-              if (save_bit_depth == 10)
-                {
-                  for (j = 0; j < drawable_height; ++j)
-                    {
-                      graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
-                      for (i = 0; i < drawable_width; ++i)
-                        {
-                          tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 1023.0f + 0.5f);
-                          *graypixels_dest = CLAMP (tmp_pixelval, 0, 1023);
-                          graypixels_dest++;
-                          graypixels_src++;
-                        }
-                    }
-                }
-              else /* save_bit_depth == 12 */
-                {
-                  for (j = 0; j < drawable_height; ++j)
-                    {
-                      graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
-                      for (i = 0; i < drawable_width; ++i)
-                        {
-                          tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 4095.0f + 0.5f);
-                          *graypixels_dest = CLAMP (tmp_pixelval, 0, 4095);
-                          graypixels_dest++;
-                          graypixels_src++;
-                        }
-                    }
-                }
-            }
-        }
-      else /* 8bit gray */
-        {
-          const uint8_t  *graypixels8_src = (const uint8_t *) pixels;
-          uint8_t  *graypixels8_dest;
-          if (save_alpha)
-            {
-              uint8_t *alpha8_dest;
-
-              for (j = 0; j < drawable_height; ++j)
-                {
-                  graypixels8_dest = j * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
-                  alpha8_dest = j * avif->alphaRowBytes + avif->alphaPlane;
-                  for (i = 0; i < drawable_width; ++i)
-                    {
-                      *graypixels8_dest = *graypixels8_src;
-                      graypixels8_dest++;
-                      graypixels8_src++;
-
-                      *alpha8_dest = *graypixels8_src;
-                      alpha8_dest++;
-                      graypixels8_src++;
-                    }
-                }
-            }
-          else
-            {
-
-              for (j = 0; j < drawable_height; ++j)
-                {
-                  graypixels8_dest = j * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
-                  for (i = 0; i < drawable_width; ++i)
-                    {
-                      *graypixels8_dest = *graypixels8_src;
-                      graypixels8_dest++;
-                      graypixels8_src++;
-                    }
-                }
-            }
-        }
-
-
-      g_free (pixels);
-    }
-  else /* color export */
-    {
-      avifRGBImage rgb;
-      avifRGBImageSetDefaults (&rgb, avif);
-      rgb.pixels = pixels;
-
-      if (avifImageUsesU16 (avif))     /* 10 and 12 bit depth export */
-        {
-          rgb.depth = 16;
-          if (save_alpha)
-            {
-              rgb.format = AVIF_RGB_FORMAT_RGBA;
-              rgb.rowBytes = rgb.width * 8;
-            }
-          else
-            {
-              rgb.format = AVIF_RGB_FORMAT_RGB;
-              rgb.rowBytes = rgb.width * 6;
-            }
-        }
-      else /* 8 bit depth export */
-        {
-          rgb.depth = 8;
-          if (save_alpha)
-            {
-              rgb.format = AVIF_RGB_FORMAT_RGBA;
-              rgb.rowBytes = rgb.width * 4;
-            }
-          else
-            {
-              rgb.format = AVIF_RGB_FORMAT_RGB;
-              rgb.rowBytes = rgb.width * 3;
-            }
-        }
-
-      res = avifImageRGBToYUV (avif, &rgb);
-      g_free (pixels);
-
-      if (res != AVIF_RESULT_OK)
-        {
-          g_message ("ERROR in avifImageRGBToYUV: %s\n", avifResultToString (res));
         }
     }
 
@@ -955,8 +784,6 @@ gboolean   save_layer (GFile         *file,
       encoder_speed = AVIF_SPEED_FASTEST;
     }
 
-  gimp_progress_update (0.5);
-
   encoder = avifEncoderCreate();
   encoder->maxThreads = num_threads;
   encoder->minQuantizer = min_quantizer;
@@ -980,6 +807,11 @@ gboolean   save_layer (GFile         *file,
       encoder->maxQuantizerAlpha = alpha_quantizer;
     }
 
+  if (n_drawables >= 2)
+    {
+      encoder->timescale = animation_timescale;
+    }
+
   avifplugin_set_tiles (drawable_width, drawable_height, encoder);
   /* debug info to print encoder parameters
   printf ( "Qmin: %d, Qmax: %d, Qalpha: %d, Speed: %d, tileColsLog2: %d, tileRowsLog2 %d, Encoder: %d, threads: %d\n",
@@ -987,9 +819,209 @@ gboolean   save_layer (GFile         *file,
            encoder->speed, encoder->tileColsLog2, encoder->tileRowsLog2, encoder->codecChoice,encoder->maxThreads );
   */
 
-  res = avifEncoderWrite (encoder, avif, &raw);
-  avifEncoderDestroy (encoder);
+  if (save_alpha)
+    {
+      avif->alphaRange = AVIF_RANGE_FULL;
+      avifImageAllocatePlanes (avif, AVIF_PLANES_YUV | AVIF_PLANES_A);
+    }
+  else
+    {
+      avifImageAllocatePlanes (avif, AVIF_PLANES_YUV);
+    }
+
+  for (frame_index = n_drawables - 1; frame_index >= 0; frame_index--)
+    {
+      /* fetch the image */
+      buffer = gimp_drawable_get_buffer (drawables[frame_index]);
+      gegl_buffer_get (buffer, GEGL_RECTANGLE (0, 0,
+                       drawable_width, drawable_height), 1.0,
+                       file_format, pixels,
+                       GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+
+      g_object_unref (buffer);
+
+
+      if (is_gray)   /* Gray export */
+        {
+          if (avifImageUsesU16 (avif))
+            {
+              const uint16_t  *graypixels_src = (const uint16_t *) pixels;
+              uint16_t  *graypixels_dest;
+              int tmp_pixelval;
+
+              if (save_alpha)
+                {
+                  uint16_t  *alpha_dest;
+
+                  if (save_bit_depth == 10)
+                    {
+                      for (j = 0; j < drawable_height; ++j)
+                        {
+                          graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
+                          alpha_dest      = (uint16_t *) (j * avif->alphaRowBytes + avif->alphaPlane);
+                          for (i = 0; i < drawable_width; ++i)
+                            {
+                              tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 1023.0f + 0.5f);
+                              *graypixels_dest = CLAMP (tmp_pixelval, 0, 1023);
+                              graypixels_dest++;
+                              graypixels_src++;
+
+                              tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 1023.0f + 0.5f);
+                              *alpha_dest = CLAMP (tmp_pixelval, 0, 1023);
+                              alpha_dest++;
+                              graypixels_src++;
+                            }
+                        }
+                    }
+                  else /* save_bit_depth == 12 */
+                    {
+                      for (j = 0; j < drawable_height; ++j)
+                        {
+                          graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
+                          alpha_dest      = (uint16_t *) (j * avif->alphaRowBytes + avif->alphaPlane);
+                          for (i = 0; i < drawable_width; ++i)
+                            {
+                              tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 4095.0f + 0.5f);
+                              *graypixels_dest = CLAMP (tmp_pixelval, 0, 4095);
+                              graypixels_dest++;
+                              graypixels_src++;
+
+                              tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 4095.0f + 0.5f);
+                              *alpha_dest = CLAMP (tmp_pixelval, 0, 4095);
+                              alpha_dest++;
+                              graypixels_src++;
+                            }
+                        }
+                    }
+                }
+              else /* no alpha channel */
+                {
+                  if (save_bit_depth == 10)
+                    {
+                      for (j = 0; j < drawable_height; ++j)
+                        {
+                          graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
+                          for (i = 0; i < drawable_width; ++i)
+                            {
+                              tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 1023.0f + 0.5f);
+                              *graypixels_dest = CLAMP (tmp_pixelval, 0, 1023);
+                              graypixels_dest++;
+                              graypixels_src++;
+                            }
+                        }
+                    }
+                  else /* save_bit_depth == 12 */
+                    {
+                      for (j = 0; j < drawable_height; ++j)
+                        {
+                          graypixels_dest = (uint16_t *) (j * avif->yuvRowBytes[0]   + avif->yuvPlanes[0]);
+                          for (i = 0; i < drawable_width; ++i)
+                            {
+                              tmp_pixelval = (int) ( ( (float) (*graypixels_src) / 65535.0f) * 4095.0f + 0.5f);
+                              *graypixels_dest = CLAMP (tmp_pixelval, 0, 4095);
+                              graypixels_dest++;
+                              graypixels_src++;
+                            }
+                        }
+                    }
+                }
+            }
+          else /* 8bit gray */
+            {
+              const uint8_t  *graypixels8_src = (const uint8_t *) pixels;
+              uint8_t  *graypixels8_dest;
+              if (save_alpha)
+                {
+                  uint8_t *alpha8_dest;
+
+                  for (j = 0; j < drawable_height; ++j)
+                    {
+                      graypixels8_dest = j * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
+                      alpha8_dest = j * avif->alphaRowBytes + avif->alphaPlane;
+                      for (i = 0; i < drawable_width; ++i)
+                        {
+                          *graypixels8_dest = *graypixels8_src;
+                          graypixels8_dest++;
+                          graypixels8_src++;
+
+                          *alpha8_dest = *graypixels8_src;
+                          alpha8_dest++;
+                          graypixels8_src++;
+                        }
+                    }
+                }
+              else
+                {
+
+                  for (j = 0; j < drawable_height; ++j)
+                    {
+                      graypixels8_dest = j * avif->yuvRowBytes[0] + avif->yuvPlanes[0];
+                      for (i = 0; i < drawable_width; ++i)
+                        {
+                          *graypixels8_dest = *graypixels8_src;
+                          graypixels8_dest++;
+                          graypixels8_src++;
+                        }
+                    }
+                }
+            }
+
+        }
+      else /* color export */
+        {
+          avifRGBImage rgb;
+          avifRGBImageSetDefaults (&rgb, avif);
+          rgb.pixels = pixels;
+
+          if (avifImageUsesU16 (avif))     /* 10 and 12 bit depth export */
+            {
+              rgb.depth = 16;
+              if (save_alpha)
+                {
+                  rgb.format = AVIF_RGB_FORMAT_RGBA;
+                  rgb.rowBytes = rgb.width * 8;
+                }
+              else
+                {
+                  rgb.format = AVIF_RGB_FORMAT_RGB;
+                  rgb.rowBytes = rgb.width * 6;
+                }
+            }
+          else /* 8 bit depth export */
+            {
+              rgb.depth = 8;
+              if (save_alpha)
+                {
+                  rgb.format = AVIF_RGB_FORMAT_RGBA;
+                  rgb.rowBytes = rgb.width * 4;
+                }
+              else
+                {
+                  rgb.format = AVIF_RGB_FORMAT_RGB;
+                  rgb.rowBytes = rgb.width * 3;
+                }
+            }
+
+          res = avifImageRGBToYUV (avif, &rgb);
+          if (res != AVIF_RESULT_OK)
+            {
+              g_message ("ERROR in avifImageRGBToYUV: %s\n", avifResultToString (res));
+            }
+        }
+
+      res = avifEncoderAddImage (encoder, avif, animation_frame_duration, (n_drawables == 1) ? AVIF_ADD_IMAGE_FLAG_SINGLE : AVIF_ADD_IMAGE_FLAG_NONE);
+      if (res != AVIF_RESULT_OK)
+        {
+          g_message ("ERROR in avifEncoderAddImage: %s\n", avifResultToString (res));
+        }
+
+      gimp_progress_update (0.5 * frame_index / n_drawables);
+    }
+
+  g_free (pixels);
   avifImageDestroy (avif);
+  res = avifEncoderFinish (encoder,  &raw);
+  avifEncoderDestroy (encoder);
 
   if (res == AVIF_RESULT_OK)
     {
@@ -1019,18 +1051,6 @@ gboolean   save_layer (GFile         *file,
     }
 
   g_free (filename);
-  return FALSE;
-}
-
-gboolean   save_animation (GFile         *file,
-                           GimpImage     *image,
-                           gint           n_drawables,
-                           GimpDrawable **drawables,
-                           GObject       *config,
-                           GimpMetadata  *metadata,
-                           GError       **error)
-{
-  g_message ("save_animation NOT IMPLEMENTED YET!!!\n");
   return FALSE;
 }
 

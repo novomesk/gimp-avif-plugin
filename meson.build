@@ -1,4 +1,4 @@
-project('file-avif', 'c', 'cpp',
+project('file-avif', 'c',
   license : 'GPL3',
   default_options: [
     'c_std=gnu11',
@@ -45,9 +45,17 @@ compiler_args = []
 compiler_args += cc.get_supported_arguments('-fPIE')
 compiler_args += cc.get_supported_arguments(warning_cflags_common)
 add_project_arguments(cc .get_supported_arguments(warning_cflags_c),   language: 'c')
-add_project_arguments(compiler_args, language: [ 'c', 'cpp' ])
+add_project_arguments(compiler_args, language: [ 'c' ])
 
 gimp             = dependency('gimp-3.0')
-gimpplugindir = gimp.get_pkgconfig_variable('gimplibdir')
+gimpplugindir    = gimp.get_pkgconfig_variable('gimplibdir')
+
+libgimpui_dep    = dependency('gimpui-3.0')
+
+gexiv2_minver    = '0.12.2'
+gexiv2           = dependency('gexiv2',             version: '>='+gexiv2_minver)
+
+lcms_minver      = '2.8'
+lcms             = dependency('lcms2',              version: '>='+lcms_minver)
 
 subdir('src')
