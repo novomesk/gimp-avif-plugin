@@ -1013,6 +1013,11 @@ gboolean   save_layers (GFile         *file,
       if (res != AVIF_RESULT_OK)
         {
           g_message ("ERROR in avifEncoderAddImage: %s\n", avifResultToString (res));
+          g_free (pixels);
+          avifImageDestroy (avif);
+          avifEncoderDestroy (encoder);
+          g_free (filename);
+          return FALSE;
         }
 
       gimp_progress_update (0.5 * frame_index / n_drawables);
