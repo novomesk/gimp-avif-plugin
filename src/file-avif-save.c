@@ -272,14 +272,14 @@ gboolean   save_layers (GFile         *file,
     }
 
   drawable_type   = gimp_drawable_type (drawables[0]);
-  drawable_width  = gimp_drawable_width (drawables[0]);
-  drawable_height = gimp_drawable_height (drawables[0]);
+  drawable_width  = gimp_drawable_get_width (drawables[0]);
+  drawable_height = gimp_drawable_get_height (drawables[0]);
 
   if (n_drawables >= 2)
     {
       for (i = 1; i < n_drawables; i++)
         {
-          if (drawable_width != gimp_drawable_width (drawables[i]) || drawable_height != gimp_drawable_height (drawables[i]))
+          if (drawable_width != gimp_drawable_get_width (drawables[i]) || drawable_height != gimp_drawable_get_height (drawables[i]))
             {
               g_warning ("Can't save animation. Layers have different width or height!\n");
               return FALSE;
