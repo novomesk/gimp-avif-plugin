@@ -947,7 +947,11 @@ GimpImage *load_image (GFile       *file,
 
   if (avif->transformFlags & AVIF_TRANSFORM_IMIR)
     {
+#if AVIF_VERSION > 90100
+      switch (avif->imir.mode)
+#else
       switch (avif->imir.axis)
+#endif
         {
         case 0:
           gimp_image_flip (image, GIMP_ORIENTATION_VERTICAL);
