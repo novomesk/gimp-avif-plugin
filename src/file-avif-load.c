@@ -283,6 +283,10 @@ GimpImage *load_image (GFile       *file,
 
   decoder = avifDecoderCreate();
 
+#if AVIF_VERSION >= 90100
+  decoder->strictFlags = AVIF_STRICT_DISABLED;
+#endif
+
   decodeResult = avifDecoderSetIOMemory (decoder, raw.data, raw.size);
   if (decodeResult != AVIF_RESULT_OK)
     {
