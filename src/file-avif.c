@@ -391,7 +391,10 @@ avif_save (GimpProcedure        *procedure,
   g_object_unref (config);
 
   if (export == GIMP_EXPORT_EXPORT)
-    gimp_image_delete (image);
+    {
+      gimp_image_delete (image);
+      g_free (drawables);
+    }
 
   return gimp_procedure_new_return_values (procedure, status, error);
 }
