@@ -168,6 +168,7 @@ static const int av1_arg_ctrl_map[] = { AOME_SET_CPUUSED,
                                         AV1E_SET_ENABLE_SMOOTH_INTRA,
                                         AV1E_SET_ENABLE_PAETH_INTRA,
                                         AV1E_SET_ENABLE_CFL_INTRA,
+                                        AV1E_SET_ENABLE_DIAGONAL_INTRA,
                                         AV1E_SET_FORCE_VIDEO_MODE,
                                         AV1E_SET_ENABLE_OBMC,
                                         AV1E_SET_ENABLE_OVERLAY,
@@ -212,6 +213,7 @@ static const int av1_arg_ctrl_map[] = { AOME_SET_CPUUSED,
 #if CONFIG_DENOISE
                                         AV1E_SET_DENOISE_NOISE_LEVEL,
                                         AV1E_SET_DENOISE_BLOCK_SIZE,
+                                        AV1E_SET_ENABLE_DNL_DENOISING,
 #endif  // CONFIG_DENOISE
                                         AV1E_SET_MAX_REFERENCE_FRAMES,
                                         AV1E_SET_REDUCED_REFERENCE_SET,
@@ -220,9 +222,15 @@ static const int av1_arg_ctrl_map[] = { AOME_SET_CPUUSED,
                                         AV1E_SET_TIER_MASK,
                                         AV1E_SET_MIN_CR,
                                         AV1E_SET_VBR_CORPUS_COMPLEXITY_LAP,
+                                        AV1E_SET_CHROMA_SUBSAMPLING_X,
+                                        AV1E_SET_CHROMA_SUBSAMPLING_Y,
 #if CONFIG_TUNE_VMAF
                                         AV1E_SET_VMAF_MODEL_PATH,
 #endif
+                                        AV1E_SET_DV_COST_UPD_FREQ,
+                                        AV1E_SET_PARTITION_INFO_PATH,
+                                        AV1E_SET_ENABLE_DIRECTIONAL_INTRA,
+                                        AV1E_SET_ENABLE_TX_SIZE_SEARCH,
                                         0 };
 
 const arg_def_t *main_args[] = { &g_av1_codec_arg_defs.help,
@@ -237,6 +245,7 @@ const arg_def_t *main_args[] = { &g_av1_codec_arg_defs.help,
                                  &g_av1_codec_arg_defs.skip,
                                  &g_av1_codec_arg_defs.good_dl,
                                  &g_av1_codec_arg_defs.rt_dl,
+                                 &g_av1_codec_arg_defs.ai_dl,
                                  &g_av1_codec_arg_defs.quietarg,
                                  &g_av1_codec_arg_defs.verbosearg,
                                  &g_av1_codec_arg_defs.psnrarg,
@@ -269,11 +278,13 @@ const arg_def_t *global_args[] = {
   &g_av1_codec_arg_defs.framerate,
   &g_av1_codec_arg_defs.global_error_resilient,
   &g_av1_codec_arg_defs.bitdeptharg,
+  &g_av1_codec_arg_defs.inbitdeptharg,
   &g_av1_codec_arg_defs.lag_in_frames,
   &g_av1_codec_arg_defs.large_scale_tile,
   &g_av1_codec_arg_defs.monochrome,
   &g_av1_codec_arg_defs.full_still_picture_hdr,
   &g_av1_codec_arg_defs.use_16bit_internal,
+  &g_av1_codec_arg_defs.save_as_annexb,
   NULL
 };
 
@@ -303,9 +314,14 @@ const arg_def_t *rc_args[] = { &g_av1_codec_arg_defs.dropframe_thresh,
 const arg_def_t *kf_args[] = { &g_av1_codec_arg_defs.fwd_kf_enabled,
                                &g_av1_codec_arg_defs.kf_min_dist,
                                &g_av1_codec_arg_defs.kf_max_dist,
-                               &g_av1_codec_arg_defs.kf_disabled, NULL };
+                               &g_av1_codec_arg_defs.kf_disabled,
+                               &g_av1_codec_arg_defs.sframe_dist,
+                               &g_av1_codec_arg_defs.sframe_mode,
+                               NULL };
 
-const arg_def_t *av1_args[] = {
+// TODO(bohanli): Currently all options are supported by the key & value API.
+// Consider removing the control ID usages?
+const arg_def_t *av1_ctrl_args[] = {
   &g_av1_codec_arg_defs.cpu_used_av1,
   &g_av1_codec_arg_defs.auto_altref,
   &g_av1_codec_arg_defs.sharpness,
@@ -351,6 +367,7 @@ const arg_def_t *av1_args[] = {
   &g_av1_codec_arg_defs.enable_smooth_intra,
   &g_av1_codec_arg_defs.enable_paeth_intra,
   &g_av1_codec_arg_defs.enable_cfl_intra,
+  &g_av1_codec_arg_defs.enable_diagonal_intra,
   &g_av1_codec_arg_defs.force_video_mode,
   &g_av1_codec_arg_defs.enable_obmc,
   &g_av1_codec_arg_defs.enable_overlay,
@@ -395,6 +412,7 @@ const arg_def_t *av1_args[] = {
 #if CONFIG_DENOISE
   &g_av1_codec_arg_defs.denoise_noise_level,
   &g_av1_codec_arg_defs.denoise_block_size,
+  &g_av1_codec_arg_defs.enable_dnl_denoising,
 #endif  // CONFIG_DENOISE
   &g_av1_codec_arg_defs.max_reference_frames,
   &g_av1_codec_arg_defs.reduced_reference_set,
@@ -403,23 +421,29 @@ const arg_def_t *av1_args[] = {
   &g_av1_codec_arg_defs.set_tier_mask,
   &g_av1_codec_arg_defs.set_min_cr,
   &g_av1_codec_arg_defs.vbr_corpus_complexity_lap,
-  &g_av1_codec_arg_defs.bitdeptharg,
-  &g_av1_codec_arg_defs.inbitdeptharg,
   &g_av1_codec_arg_defs.input_chroma_subsampling_x,
   &g_av1_codec_arg_defs.input_chroma_subsampling_y,
-  &g_av1_codec_arg_defs.sframe_dist,
-  &g_av1_codec_arg_defs.sframe_mode,
-  &g_av1_codec_arg_defs.save_as_annexb,
 #if CONFIG_TUNE_VMAF
   &g_av1_codec_arg_defs.vmaf_model_path,
 #endif
-  NULL
+  &g_av1_codec_arg_defs.dv_cost_upd_freq,
+  &g_av1_codec_arg_defs.partition_info_path,
+  &g_av1_codec_arg_defs.enable_directional_intra,
+  &g_av1_codec_arg_defs.enable_tx_size_search,
+  NULL,
+};
+
+const arg_def_t *av1_key_val_args[] = {
+  &g_av1_codec_arg_defs.passes,
+  &g_av1_codec_arg_defs.two_pass_output,
+  &g_av1_codec_arg_defs.fwd_kf_dist,
+  NULL,
 };
 
 static const arg_def_t *no_args[] = { NULL };
 
 static void show_help(FILE *fout, int shorthelp) {
-  fprintf(fout, "Usage: %s <options> -o dst_filename src_filename \n",
+  fprintf(fout, "Usage: %s <options> -o dst_filename src_filename\n",
           exec_name);
 
   if (shorthelp) {
@@ -437,7 +461,8 @@ static void show_help(FILE *fout, int shorthelp) {
   arg_show_usage(fout, kf_args);
 #if CONFIG_AV1_ENCODER
   fprintf(fout, "\nAV1 Specific Options:\n");
-  arg_show_usage(fout, av1_args);
+  arg_show_usage(fout, av1_ctrl_args);
+  arg_show_usage(fout, av1_key_val_args);
 #endif
   fprintf(fout,
           "\nStream timebase (--timebase):\n"
@@ -463,6 +488,7 @@ void usage_exit(void) {
 
 #if CONFIG_AV1_ENCODER
 #define ARG_CTRL_CNT_MAX NELEMENTS(av1_arg_ctrl_map)
+#define ARG_KEY_VAL_CNT_MAX NELEMENTS(av1_key_val_args)
 #endif
 
 #if !CONFIG_WEBM_IO
@@ -480,6 +506,8 @@ struct stream_config {
   stereo_format_t stereo_fmt;
   int arg_ctrls[ARG_CTRL_CNT_MAX][2];
   int arg_ctrl_cnt;
+  const char *arg_key_vals[ARG_KEY_VAL_CNT_MAX][2];
+  int arg_key_val_cnt;
   int write_webm;
   const char *film_grain_filename;
   int write_ivf;
@@ -488,7 +516,12 @@ struct stream_config {
 #if CONFIG_TUNE_VMAF
   const char *vmaf_model_path;
 #endif
+  const char *partition_info_path;
   aom_color_range_t color_range;
+  const char *two_pass_input;
+  const char *two_pass_output;
+  int two_pass_width;
+  int two_pass_height;
 };
 
 struct stream_state {
@@ -513,6 +546,12 @@ struct stream_state {
   int mismatch_seen;
   unsigned int chroma_subsampling_x;
   unsigned int chroma_subsampling_y;
+  const char *orig_out_fn;
+  unsigned int orig_width;
+  unsigned int orig_height;
+  int orig_write_webm;
+  int orig_write_ivf;
+  char tmp_out_fn[40];
 };
 
 static void validate_positive_rational(const char *msg,
@@ -574,12 +613,12 @@ static void parse_global_config(struct AvxEncoderConfig *global, char ***argv) {
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.passes, argi)) {
       global->passes = arg_parse_uint(&arg);
 
-      if (global->passes < 1 || global->passes > 2)
+      if (global->passes < 1 || global->passes > 3)
         die("Error: Invalid number of passes (%d)\n", global->passes);
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.pass_arg, argi)) {
       global->pass = arg_parse_uint(&arg);
 
-      if (global->pass < 1 || global->pass > 2)
+      if (global->pass < 1 || global->pass > 3)
         die("Error: Invalid pass selected (%d)\n", global->pass);
     } else if (arg_match(&arg,
                          &g_av1_codec_arg_defs.input_chroma_sample_position,
@@ -593,6 +632,8 @@ static void parse_global_config(struct AvxEncoderConfig *global, char ***argv) {
       global->usage = AOM_USAGE_GOOD_QUALITY;  // Good quality usage
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.rt_dl, argi)) {
       global->usage = AOM_USAGE_REALTIME;  // Real-time usage
+    } else if (arg_match(&arg, &g_av1_codec_arg_defs.ai_dl, argi)) {
+      global->usage = AOM_USAGE_ALL_INTRA;  // All intra usage
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.use_yv12, argi)) {
       global->color_type = YV12;
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.use_i420, argi)) {
@@ -639,8 +680,8 @@ static void parse_global_config(struct AvxEncoderConfig *global, char ***argv) {
   if (global->pass) {
     /* DWIM: Assume the user meant passes=2 if pass=2 is specified */
     if (global->pass > global->passes) {
-      warn("Assuming --pass=%d implies --passes=%d\n", global->pass,
-           global->pass);
+      aom_tools_warn("Assuming --pass=%d implies --passes=%d\n", global->pass,
+                     global->pass);
       global->passes = global->pass;
     }
   }
@@ -661,7 +702,14 @@ static void parse_global_config(struct AvxEncoderConfig *global, char ***argv) {
   }
 
   if (global->usage == AOM_USAGE_REALTIME && global->passes > 1) {
-    warn("Enforcing one-pass encoding in realtime mode\n");
+    aom_tools_warn("Enforcing one-pass encoding in realtime mode\n");
+    if (global->pass > 1)
+      die("Error: Invalid --pass=%d for one-pass encoding\n", global->pass);
+    global->passes = 1;
+  }
+
+  if (global->usage == AOM_USAGE_ALL_INTRA && global->passes > 1) {
+    aom_tools_warn("Enforcing one-pass encoding in all intra mode\n");
     global->passes = 1;
   }
 }
@@ -770,6 +818,10 @@ static struct stream_state *new_stream(struct AvxEncoderConfig *global,
 
   /* Output files must be specified for each stream */
   stream->config.out_fn = NULL;
+  stream->config.two_pass_input = NULL;
+  stream->config.two_pass_output = NULL;
+  stream->config.two_pass_width = 0;
+  stream->config.two_pass_height = 0;
 
   stream->next = NULL;
   return stream;
@@ -787,7 +839,7 @@ static void set_config_arg_ctrls(struct stream_config *config, int key,
   // so we simply append it.
   if (key == AV1E_SET_TARGET_SEQ_LEVEL_IDX) {
     j = config->arg_ctrl_cnt;
-    assert(j < (int)ARG_CTRL_CNT_MAX);
+    assert(j < ARG_CTRL_CNT_MAX);
     config->arg_ctrls[j][0] = key;
     config->arg_ctrls[j][1] = arg_parse_enum_or_int(arg);
     ++config->arg_ctrl_cnt;
@@ -801,15 +853,55 @@ static void set_config_arg_ctrls(struct stream_config *config, int key,
     if (config->arg_ctrls[j][0] == key) break;
 
   /* Update/insert */
-  assert(j < (int)ARG_CTRL_CNT_MAX);
+  assert(j < ARG_CTRL_CNT_MAX);
   config->arg_ctrls[j][0] = key;
   config->arg_ctrls[j][1] = arg_parse_enum_or_int(arg);
 
   if (key == AOME_SET_ENABLEAUTOALTREF && config->arg_ctrls[j][1] > 1) {
-    warn("auto-alt-ref > 1 is deprecated... setting auto-alt-ref=1\n");
+    aom_tools_warn(
+        "auto-alt-ref > 1 is deprecated... setting auto-alt-ref=1\n");
     config->arg_ctrls[j][1] = 1;
   }
+
   if (j == config->arg_ctrl_cnt) config->arg_ctrl_cnt++;
+}
+
+static void set_config_arg_key_vals(struct stream_config *config,
+                                    const char *name, const struct arg *arg) {
+  int j;
+  const char *val = arg->val;
+  // For target level, the settings should accumulate rather than overwrite,
+  // so we simply append it.
+  if (strcmp(name, "target-seq-level-idx") == 0) {
+    j = config->arg_key_val_cnt;
+    assert(j < ARG_KEY_VAL_CNT_MAX);
+    config->arg_key_vals[j][0] = name;
+    config->arg_key_vals[j][1] = val;
+    ++config->arg_key_val_cnt;
+    return;
+  }
+
+  /* Point either to the next free element or the first instance of this
+   * option.
+   */
+  for (j = 0; j < config->arg_key_val_cnt; j++)
+    if (strcmp(name, config->arg_key_vals[j][0]) == 0) break;
+
+  /* Update/insert */
+  assert(j < ARG_KEY_VAL_CNT_MAX);
+  config->arg_key_vals[j][0] = name;
+  config->arg_key_vals[j][1] = val;
+
+  if (strcmp(name, g_av1_codec_arg_defs.auto_altref.long_name) == 0) {
+    int auto_altref = arg_parse_int(arg);
+    if (auto_altref > 1) {
+      aom_tools_warn(
+          "auto-alt-ref > 1 is deprecated... setting auto-alt-ref=1\n");
+      config->arg_key_vals[j][1] = "1";
+    }
+  }
+
+  if (j == config->arg_key_val_cnt) config->arg_key_val_cnt++;
 }
 
 static int parse_stream_params(struct AvxEncoderConfig *global,
@@ -817,6 +909,7 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
   char **argi, **argj;
   struct arg arg;
   static const arg_def_t **ctrl_args = no_args;
+  static const arg_def_t **key_val_args = no_args;
   static const int *ctrl_args_map = NULL;
   struct stream_config *config = &stream->config;
   int eos_mark_found = 0;
@@ -828,8 +921,9 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
   } else if (strcmp(get_short_name_by_aom_encoder(global->codec), "av1") == 0) {
     // TODO(jingning): Reuse AV1 specific encoder configuration parameters.
     // Consider to expand this set for AV1 encoder control.
-    ctrl_args = av1_args;
+    ctrl_args = av1_ctrl_args;
     ctrl_args_map = av1_arg_ctrl_map;
+    key_val_args = av1_key_val_args;
 #endif
   }
 
@@ -926,7 +1020,8 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
                          argi)) {
       config->use_16bit_internal = CONFIG_AV1_HIGHBITDEPTH;
       if (!config->use_16bit_internal) {
-        warn("%s option ignored with CONFIG_AV1_HIGHBITDEPTH=0.\n", arg.name);
+        aom_tools_warn("%s option ignored with CONFIG_AV1_HIGHBITDEPTH=0.\n",
+                       arg.name);
       }
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.dropframe_thresh, argi)) {
       config->cfg.rc_dropframe_thresh = arg_parse_uint(&arg);
@@ -972,17 +1067,17 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.bias_pct, argi)) {
       config->cfg.rc_2pass_vbr_bias_pct = arg_parse_uint(&arg);
       if (global->passes < 2)
-        warn("option %s ignored in one-pass mode.\n", arg.name);
+        aom_tools_warn("option %s ignored in one-pass mode.\n", arg.name);
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.minsection_pct, argi)) {
       config->cfg.rc_2pass_vbr_minsection_pct = arg_parse_uint(&arg);
 
       if (global->passes < 2)
-        warn("option %s ignored in one-pass mode.\n", arg.name);
+        aom_tools_warn("option %s ignored in one-pass mode.\n", arg.name);
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.maxsection_pct, argi)) {
       config->cfg.rc_2pass_vbr_maxsection_pct = arg_parse_uint(&arg);
 
       if (global->passes < 2)
-        warn("option %s ignored in one-pass mode.\n", arg.name);
+        aom_tools_warn("option %s ignored in one-pass mode.\n", arg.name);
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.fwd_kf_enabled, argi)) {
       config->cfg.fwd_kf_enabled = arg_parse_uint(&arg);
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.kf_min_dist, argi)) {
@@ -1007,6 +1102,9 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.vmaf_model_path, argi)) {
       config->vmaf_model_path = arg.val;
 #endif
+    } else if (arg_match(&arg, &g_av1_codec_arg_defs.partition_info_path,
+                         argi)) {
+      config->partition_info_path = arg.val;
     } else if (arg_match(&arg, &g_av1_codec_arg_defs.use_fixed_qp_offsets,
                          argi)) {
       config->cfg.use_fixed_qp_offsets = arg_parse_uint(&arg);
@@ -1023,17 +1121,37 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
                arg_match(&arg, &g_av1_codec_arg_defs.enable_restoration,
                          argi)) {
       if (arg_parse_uint(&arg) == 1) {
-        warn("non-zero %s option ignored in realtime mode.\n", arg.name);
+        aom_tools_warn("non-zero %s option ignored in realtime mode.\n",
+                       arg.name);
       }
+    } else if (arg_match(&arg, &g_av1_codec_arg_defs.two_pass_input, argi)) {
+      config->two_pass_input = arg.val;
+    } else if (arg_match(&arg, &g_av1_codec_arg_defs.two_pass_output, argi)) {
+      config->two_pass_output = arg.val;
+    } else if (arg_match(&arg, &g_av1_codec_arg_defs.two_pass_width, argi)) {
+      config->two_pass_width = arg_parse_int(&arg);
+    } else if (arg_match(&arg, &g_av1_codec_arg_defs.two_pass_height, argi)) {
+      config->two_pass_height = arg_parse_int(&arg);
     } else {
       int i, match = 0;
-      for (i = 0; ctrl_args[i]; i++) {
-        if (arg_match(&arg, ctrl_args[i], argi)) {
-          match = 1;
-          if (ctrl_args_map) {
+      // check if the control ID API supports this arg
+      if (ctrl_args_map) {
+        for (i = 0; ctrl_args[i]; i++) {
+          if (arg_match(&arg, ctrl_args[i], argi)) {
+            match = 1;
             set_config_arg_ctrls(config, ctrl_args_map[i], &arg);
+            break;
           }
-          break;
+        }
+      }
+      if (!match) {
+        // check if the key & value API supports this arg
+        for (i = 0; key_val_args[i]; i++) {
+          if (arg_match(&arg, key_val_args[i], argi)) {
+            match = 1;
+            set_config_arg_key_vals(config, key_val_args[i]->long_name, &arg);
+            break;
+          }
         }
       }
       if (!match) argj++;
@@ -1042,9 +1160,50 @@ static int parse_stream_params(struct AvxEncoderConfig *global,
   config->use_16bit_internal |= config->cfg.g_bit_depth > AOM_BITS_8;
 
   if (global->usage == AOM_USAGE_REALTIME && config->cfg.g_lag_in_frames != 0) {
-    warn("non-zero lag-in-frames option ignored in realtime mode.\n");
+    aom_tools_warn("non-zero lag-in-frames option ignored in realtime mode.\n");
     config->cfg.g_lag_in_frames = 0;
   }
+
+  if (global->usage == AOM_USAGE_ALL_INTRA) {
+    if (config->cfg.g_lag_in_frames != 0) {
+      aom_tools_warn(
+          "non-zero lag-in-frames option ignored in all intra mode.\n");
+      config->cfg.g_lag_in_frames = 0;
+    }
+    if (config->cfg.kf_max_dist != 0) {
+      aom_tools_warn(
+          "non-zero max key frame distance option ignored in all intra "
+          "mode.\n");
+      config->cfg.kf_max_dist = 0;
+    }
+  }
+
+  // set the passes field using key & val API
+  if (config->arg_key_val_cnt >= ARG_KEY_VAL_CNT_MAX) {
+    die("Not enough buffer for the key & value API.");
+  }
+  config->arg_key_vals[config->arg_key_val_cnt][0] = "passes";
+  switch (global->passes) {
+    case 0: config->arg_key_vals[config->arg_key_val_cnt][1] = "0"; break;
+    case 1: config->arg_key_vals[config->arg_key_val_cnt][1] = "1"; break;
+    case 2: config->arg_key_vals[config->arg_key_val_cnt][1] = "2"; break;
+    case 3: config->arg_key_vals[config->arg_key_val_cnt][1] = "3"; break;
+    default: die("Invalid value of --passes.");
+  }
+  config->arg_key_val_cnt++;
+
+  // set the two_pass_output field
+  if (!config->two_pass_output && global->passes == 3) {
+    snprintf(stream->tmp_out_fn, sizeof(stream->tmp_out_fn),
+             "tmp_2pass_output_%d.ivf", stream->index);
+    stream->config.two_pass_output = stream->tmp_out_fn;
+  }
+  if (config->two_pass_output) {
+    config->arg_key_vals[config->arg_key_val_cnt][0] = "two-pass-output";
+    config->arg_key_vals[config->arg_key_val_cnt][1] = config->two_pass_output;
+    config->arg_key_val_cnt++;
+  }
+
   return eos_mark_found;
 }
 
@@ -1299,9 +1458,17 @@ static void setup_pass(struct stream_state *stream,
       fatal("Failed to open statistics store");
   }
 
-  stream->config.cfg.g_pass = global->passes == 2
-                                  ? pass ? AOM_RC_LAST_PASS : AOM_RC_FIRST_PASS
-                                  : AOM_RC_ONE_PASS;
+  if (global->passes == 1) {
+    stream->config.cfg.g_pass = AOM_RC_ONE_PASS;
+  } else {
+    switch (pass) {
+      case 0: stream->config.cfg.g_pass = AOM_RC_FIRST_PASS; break;
+      case 1: stream->config.cfg.g_pass = AOM_RC_SECOND_PASS; break;
+      case 2: stream->config.cfg.g_pass = AOM_RC_THIRD_PASS; break;
+      default: fatal("Failed to set pass");
+    }
+  }
+
   if (pass) {
     stream->config.cfg.rc_twopass_stats_in = stats_get(&stream->stats);
   }
@@ -1333,12 +1500,26 @@ static void initialize_encoder(struct stream_state *stream,
     ctx_exit_on_error(&stream->encoder, "Failed to control codec");
   }
 
+  for (i = 0; i < stream->config.arg_key_val_cnt; i++) {
+    const char *name = stream->config.arg_key_vals[i][0];
+    const char *val = stream->config.arg_key_vals[i][1];
+    if (aom_codec_set_option(&stream->encoder, name, val))
+      fprintf(stderr, "Error: Tried to set option %s = %s\n", name, val);
+
+    ctx_exit_on_error(&stream->encoder, "Failed to set codec option");
+  }
+
 #if CONFIG_TUNE_VMAF
   if (stream->config.vmaf_model_path) {
     AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder, AV1E_SET_VMAF_MODEL_PATH,
                                   stream->config.vmaf_model_path);
   }
 #endif
+  if (stream->config.partition_info_path) {
+    AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder,
+                                  AV1E_SET_PARTITION_INFO_PATH,
+                                  stream->config.partition_info_path);
+  }
 
   if (stream->config.film_grain_filename) {
     AOM_CODEC_CONTROL_TYPECHECKED(&stream->encoder, AV1E_SET_FILM_GRAIN_TABLE,
@@ -1373,6 +1554,33 @@ static void initialize_encoder(struct stream_state *stream,
     }
   }
 #endif
+}
+
+// Convert the input image 'img' to a monochrome image. The Y plane of the
+// output image is a shallow copy of the Y plane of the input image, therefore
+// the input image must remain valid for the lifetime of the output image. The U
+// and V planes of the output image are set to null pointers. The output image
+// format is AOM_IMG_FMT_I420 because libaom does not have AOM_IMG_FMT_I400.
+static void convert_image_to_monochrome(const struct aom_image *img,
+                                        struct aom_image *monochrome_img) {
+  *monochrome_img = *img;
+  monochrome_img->fmt = AOM_IMG_FMT_I420;
+  if (img->fmt & AOM_IMG_FMT_HIGHBITDEPTH) {
+    monochrome_img->fmt |= AOM_IMG_FMT_HIGHBITDEPTH;
+  }
+  monochrome_img->monochrome = 1;
+  monochrome_img->csp = AOM_CSP_UNKNOWN;
+  monochrome_img->x_chroma_shift = 1;
+  monochrome_img->y_chroma_shift = 1;
+  monochrome_img->planes[AOM_PLANE_U] = NULL;
+  monochrome_img->planes[AOM_PLANE_V] = NULL;
+  monochrome_img->stride[AOM_PLANE_U] = 0;
+  monochrome_img->stride[AOM_PLANE_V] = 0;
+  monochrome_img->sz = 0;
+  monochrome_img->bps = (img->fmt & AOM_IMG_FMT_HIGHBITDEPTH) ? 16 : 8;
+  monochrome_img->img_data = NULL;
+  monochrome_img->img_data_owner = 0;
+  monochrome_img->self_allocd = 0;
 }
 
 static void encode_frame(struct stream_state *stream,
@@ -1452,6 +1660,12 @@ static void encode_frame(struct stream_state *stream,
                       "To enable, configure with --enable-libyuv\n",
                       stream->index);
 #endif
+  }
+
+  struct aom_image monochrome_img;
+  if (img && cfg->monochrome) {
+    convert_image_to_monochrome(img, &monochrome_img);
+    img = &monochrome_img;
   }
 
   aom_usec_timer_start(&timer);
@@ -1700,6 +1914,30 @@ static void print_time(const char *label, int64_t etl) {
   }
 }
 
+static void clear_stream_count_state(struct stream_state *stream) {
+  // PSNR counters
+  for (int k = 0; k < 2; k++) {
+    stream->psnr_sse_total[k] = 0;
+    stream->psnr_samples_total[k] = 0;
+    for (int i = 0; i < 4; i++) {
+      stream->psnr_totals[k][i] = 0;
+    }
+    stream->psnr_count[k] = 0;
+  }
+  // q hist
+  memset(stream->counts, 0, sizeof(stream->counts));
+}
+
+// aomenc will downscale the second pass if:
+// 1. the specific pass is not given by commandline (aomenc will perform all
+//    passes)
+// 2. there are more than 2 passes in total
+// 3. current pass is the second pass (the parameter pass starts with 0 so
+//    pass == 1)
+static int pass_need_downscale(int global_pass, int global_passes, int pass) {
+  return !global_pass && global_passes > 2 && pass == 1;
+}
+
 int main(int argc, const char **argv_) {
   int pass;
   aom_image_t raw;
@@ -1774,6 +2012,14 @@ int main(int argc, const char **argv_) {
 
   /* Handle non-option arguments */
   input.filename = argv[0];
+  const char *orig_input_filename = input.filename;
+  FOREACH_STREAM(stream, streams) {
+    stream->orig_out_fn = stream->config.out_fn;
+    stream->orig_width = stream->config.cfg.g_w;
+    stream->orig_height = stream->config.cfg.g_h;
+    stream->orig_write_ivf = stream->config.write_ivf;
+    stream->orig_write_webm = stream->config.write_webm;
+  }
 
   if (!input.filename) {
     fprintf(stderr, "No input file specified!\n");
@@ -1785,10 +2031,48 @@ int main(int argc, const char **argv_) {
     input.only_i420 = 0;
 
   for (pass = global.pass ? global.pass - 1 : 0; pass < global.passes; pass++) {
+    if (pass > 1) {
+      FOREACH_STREAM(stream, streams) { clear_stream_count_state(stream); }
+    }
+
     int frames_in = 0, seen_frames = 0;
     int64_t estimated_time_left = -1;
     int64_t average_rate = -1;
     int64_t lagged_count = 0;
+    const int need_downscale =
+        pass_need_downscale(global.pass, global.passes, pass);
+
+    // Set the output to the specified two-pass output file, and
+    // restore the width and height to the original values.
+    FOREACH_STREAM(stream, streams) {
+      if (need_downscale) {
+        stream->config.out_fn = stream->config.two_pass_output;
+        // Libaom currently only supports the ivf format for the third pass.
+        stream->config.write_ivf = 1;
+        stream->config.write_webm = 0;
+      } else {
+        stream->config.out_fn = stream->orig_out_fn;
+        stream->config.write_ivf = stream->orig_write_ivf;
+        stream->config.write_webm = stream->orig_write_webm;
+      }
+      stream->config.cfg.g_w = stream->orig_width;
+      stream->config.cfg.g_h = stream->orig_height;
+    }
+
+    // For second pass in three-pass encoding, set the input to
+    // the given two-pass-input file if available. If the scaled input is not
+    // given, we will attempt to re-scale the original input.
+    input.filename = orig_input_filename;
+    const char *two_pass_input = NULL;
+    if (need_downscale) {
+      FOREACH_STREAM(stream, streams) {
+        if (stream->config.two_pass_input) {
+          two_pass_input = stream->config.two_pass_input;
+          input.filename = two_pass_input;
+          break;
+        }
+      }
+    }
 
     open_input_file(&input, global.csp);
 
@@ -1796,20 +2080,55 @@ int main(int argc, const char **argv_) {
      * the data from the first stream's configuration.
      */
     if (!input.width || !input.height) {
-      FOREACH_STREAM(stream, streams) {
-        if (stream->config.cfg.g_w && stream->config.cfg.g_h) {
-          input.width = stream->config.cfg.g_w;
-          input.height = stream->config.cfg.g_h;
-          break;
+      if (two_pass_input) {
+        FOREACH_STREAM(stream, streams) {
+          if (stream->config.two_pass_width && stream->config.two_pass_height) {
+            input.width = stream->config.two_pass_width;
+            input.height = stream->config.two_pass_height;
+            break;
+          }
         }
-      };
+      } else {
+        FOREACH_STREAM(stream, streams) {
+          if (stream->config.cfg.g_w && stream->config.cfg.g_h) {
+            input.width = stream->config.cfg.g_w;
+            input.height = stream->config.cfg.g_h;
+            break;
+          }
+        }
+      }
     }
 
     /* Update stream configurations from the input file's parameters */
-    if (!input.width || !input.height)
-      fatal(
-          "Specify stream dimensions with --width (-w) "
-          " and --height (-h)");
+    if (!input.width || !input.height) {
+      if (two_pass_input) {
+        fatal(
+            "Specify downscaled stream dimensions with --two-pass-width "
+            " and --two-pass-height");
+      } else {
+        fatal(
+            "Specify stream dimensions with --width (-w) "
+            " and --height (-h)");
+      }
+    }
+
+    if (need_downscale) {
+      FOREACH_STREAM(stream, streams) {
+        if (stream->config.two_pass_width && stream->config.two_pass_height) {
+          stream->config.cfg.g_w = stream->config.two_pass_width;
+          stream->config.cfg.g_h = stream->config.two_pass_height;
+        } else if (two_pass_input) {
+          stream->config.cfg.g_w = input.width;
+          stream->config.cfg.g_h = input.height;
+        } else if (stream->orig_width && stream->orig_height) {
+          stream->config.cfg.g_w = (stream->orig_width + 1) / 2;
+          stream->config.cfg.g_h = (stream->orig_height + 1) / 2;
+        } else {
+          stream->config.cfg.g_w = (input.width + 1) / 2;
+          stream->config.cfg.g_h = (input.height + 1) / 2;
+        }
+      }
+    }
 
     /* If input file does not specify bit-depth but input-bit-depth parameter
      * exists, assume that to be the input bit-depth. However, if the
@@ -1843,8 +2162,10 @@ int main(int argc, const char **argv_) {
                 stream->config.cfg.g_profile = 1;
                 profile_updated = 1;
               }
-            } else if (input.bit_depth == 12 || input.fmt == AOM_IMG_FMT_I422 ||
-                       input.fmt == AOM_IMG_FMT_I42216) {
+            } else if (input.bit_depth == 12 ||
+                       ((input.fmt == AOM_IMG_FMT_I422 ||
+                         input.fmt == AOM_IMG_FMT_I42216) &&
+                        !stream->config.cfg.monochrome)) {
               stream->config.cfg.g_profile = 2;
               profile_updated = 1;
             }
@@ -1955,14 +2276,14 @@ int main(int argc, const char **argv_) {
     FOREACH_STREAM(stream, streams) { validate_stream_config(stream, &global); }
 
     /* Ensure that --passes and --pass are consistent. If --pass is set and
-     * --passes=2, ensure --fpf was set.
+     * --passes >= 2, ensure --fpf was set.
      */
-    if (global.pass && global.passes == 2) {
+    if (global.pass > 0 && global.pass <= 3 && global.passes >= 2) {
       FOREACH_STREAM(stream, streams) {
         if (!stream->config.stats_fn)
           die("Stream %d: Must specify --fpf when --pass=%d"
-              " and --passes=2\n",
-              stream->index, global.pass);
+              " and --passes=%d\n",
+              stream->index, global.pass, global.passes);
       }
     }
 
@@ -1971,7 +2292,7 @@ int main(int argc, const char **argv_) {
       if (stream->config.write_webm) {
         stream->config.write_webm = 0;
         stream->config.write_ivf = 0;
-        warn("aomenc compiled w/o WebM support. Writing OBU stream.");
+        aom_tools_warn("aomenc compiled w/o WebM support. Writing OBU stream.");
       }
     }
 #endif
@@ -2073,6 +2394,11 @@ int main(int argc, const char **argv_) {
                   cx_time > 9999999 ? "ms" : "us", fps >= 1.0 ? fps : fps * 60,
                   fps >= 1.0 ? "fps" : "fpm");
           print_time("ETA", estimated_time_left);
+          // mingw-w64 gcc does not match msvc for stderr buffering behavior
+          // and uses line buffering, thus the progress output is not
+          // real-time. The fflush() is here to make sure the progress output
+          // is sent out while the clip is being processed.
+          fflush(stderr);
         }
 
       } else {
@@ -2178,6 +2504,8 @@ int main(int argc, const char **argv_) {
                                           : stream->cx_time,
                 stream->cx_time > 9999999 ? "ms" : "us",
                 usec_to_fps(stream->cx_time, seen_frames));
+        // This instance of cr does not need fflush as it is followed by a
+        // newline in the same string.
       }
     }
 

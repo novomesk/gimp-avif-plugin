@@ -12,15 +12,15 @@
 #ifndef AOM_AV1_COMMON_CDEF_BLOCK_H_
 #define AOM_AV1_COMMON_CDEF_BLOCK_H_
 
-#include "av1/common/odintrin.h"
+#include "aom_dsp/odintrin.h"
 
 #define CDEF_BLOCKSIZE 64
 #define CDEF_BLOCKSIZE_LOG2 6
 #define CDEF_NBLOCKS ((1 << MAX_SB_SIZE_LOG2) / 8)
 #define CDEF_SB_SHIFT (MAX_SB_SIZE_LOG2 - CDEF_BLOCKSIZE_LOG2)
 
-/* We need to buffer three vertical lines. */
-#define CDEF_VBORDER (3)
+/* We need to buffer two vertical lines. */
+#define CDEF_VBORDER (2)
 /* We only need to buffer three horizontal pixels too, but let's align to
    16 bytes (8 x 16 bits) to make vectorization easier. */
 #define CDEF_HBORDER (8)

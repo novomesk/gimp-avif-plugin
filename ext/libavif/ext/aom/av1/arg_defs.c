@@ -46,6 +46,7 @@ static const struct arg_enum_list tuning_enum[] = {
   { "vmaf_without_preprocessing", AOM_TUNE_VMAF_WITHOUT_PREPROCESSING },
   { "vmaf", AOM_TUNE_VMAF_MAX_GAIN },
   { "vmaf_neg", AOM_TUNE_VMAF_NEG_MAX_GAIN },
+  { "butteraugli", AOM_TUNE_BUTTERAUGLI },
   { NULL, 0 }
 };
 
@@ -139,18 +140,19 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .debugmode =
       ARG_DEF("D", "debug", 0, "Debug mode (makes output deterministic)"),
   .outputfile = ARG_DEF("o", "output", 1, "Output filename"),
-  .use_yv12 = ARG_DEF(NULL, "yv12", 0, "Input file is YV12 "),
+  .use_yv12 = ARG_DEF(NULL, "yv12", 0, "Input file is YV12"),
   .use_i420 = ARG_DEF(NULL, "i420", 0, "Input file is I420 (default)"),
   .use_i422 = ARG_DEF(NULL, "i422", 0, "Input file is I422"),
   .use_i444 = ARG_DEF(NULL, "i444", 0, "Input file is I444"),
   .codecarg = ARG_DEF(NULL, "codec", 1, "Codec to use"),
-  .passes = ARG_DEF("p", "passes", 1, "Number of passes (1/2)"),
-  .pass_arg = ARG_DEF(NULL, "pass", 1, "Pass to execute (1/2)"),
+  .passes = ARG_DEF("p", "passes", 1, "Number of passes (1/2/3)"),
+  .pass_arg = ARG_DEF(NULL, "pass", 1, "Pass to execute (1/2/3)"),
   .fpf_name = ARG_DEF(NULL, "fpf", 1, "First pass statistics file name"),
   .limit = ARG_DEF(NULL, "limit", 1, "Stop encoding after n input frames"),
   .skip = ARG_DEF(NULL, "skip", 1, "Skip the first n input frames"),
   .good_dl = ARG_DEF(NULL, "good", 0, "Use Good Quality Deadline"),
   .rt_dl = ARG_DEF(NULL, "rt", 0, "Use Realtime Quality Deadline"),
+  .ai_dl = ARG_DEF(NULL, "allintra", 0, "Use all intra mode"),
   .quietarg = ARG_DEF("q", "quiet", 0, "Do not print encode progress"),
   .verbosearg = ARG_DEF("v", "verbose", 0, "Show encoder parameters"),
   .psnrarg = ARG_DEF(
@@ -188,7 +190,8 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .input_chroma_subsampling_y = ARG_DEF(NULL, "input-chroma-subsampling-y", 1,
                                         "chroma subsampling y value."),
 
-  .usage = ARG_DEF("u", "usage", 1, "Usage profile number to use"),
+  .usage = ARG_DEF("u", "usage", 1,
+                   "Usage profile number to use (0: good, 1: rt, 2: allintra)"),
   .threads = ARG_DEF("t", "threads", 1, "Max number of threads to use"),
   .profile = ARG_DEF(NULL, "profile", 1, "Bitstream profile number to use"),
   .width = ARG_DEF("w", "width", 1, "Frame width"),
@@ -268,7 +271,9 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .noise_sens = ARG_DEF(NULL, "noise-sensitivity", 1,
                         "Noise sensitivity (frames to blur)"),
   .sharpness = ARG_DEF(NULL, "sharpness", 1,
-                       "Loop filter sharpness (0..7), default is 0"),
+                       "Bias towards block sharpness in rate-distortion "
+                       "optimization of transform coefficients "
+                       "(0..7), default is 0"),
   .static_thresh =
       ARG_DEF(NULL, "static-thresh", 1, "Motion detection threshold"),
   .auto_altref =
@@ -402,6 +407,15 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .enable_cfl_intra = ARG_DEF(NULL, "enable-cfl-intra", 1,
                               "Enable chroma from luma intra prediction mode "
                               "(0: false, 1: true (default))"),
+  .enable_directional_intra =
+      ARG_DEF(NULL, "enable-directional-intra", 1,
+              "Enable directional intra prediction modes "
+              "(0: false, 1: true (default))"),
+  .enable_diagonal_intra =
+      ARG_DEF(NULL, "enable-diagonal-intra", 1,
+              "Enable diagonal (D45 to D203) intra prediction modes, which are "
+              "a subset of directional modes. Has no effect if "
+              "enable-directional-intra is 0 (0: false, 1: true (default))"),
   .force_video_mode = ARG_DEF(NULL, "force-video-mode", 1,
                               "Force video mode (0: false, 1: true (default))"),
   .enable_obmc = ARG_DEF(NULL, "enable-obmc", 1,
@@ -441,13 +455,16 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
               "Use Default-transform only for INTRA modes"),
   .quant_b_adapt = ARG_DEF(NULL, "quant-b-adapt", 1, "Use adaptive quantize_b"),
   .coeff_cost_upd_freq = ARG_DEF(NULL, "coeff-cost-upd-freq", 1,
-                                 "Update freq for coeff costs"
+                                 "Update freq for coeff costs. "
                                  "0: SB, 1: SB Row per Tile, 2: Tile, 3: Off"),
   .mode_cost_upd_freq = ARG_DEF(NULL, "mode-cost-upd-freq", 1,
-                                "Update freq for mode costs"
+                                "Update freq for mode costs. "
                                 "0: SB, 1: SB Row per Tile, 2: Tile, 3: Off"),
   .mv_cost_upd_freq = ARG_DEF(NULL, "mv-cost-upd-freq", 1,
-                              "Update freq for mv costs"
+                              "Update freq for mv costs. "
+                              "0: SB, 1: SB Row per Tile, 2: Tile, 3: Off"),
+  .dv_cost_upd_freq = ARG_DEF(NULL, "dv-cost-upd-freq", 1,
+                              "Update freq for dv costs. "
                               "0: SB, 1: SB Row per Tile, 2: Tile, 3: Off"),
   .num_tg = ARG_DEF(NULL, "num-tile-groups", 1,
                     "Maximum number of tile groups, default is 1"),
@@ -464,6 +481,8 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .vmaf_model_path =
       ARG_DEF(NULL, "vmaf-model-path", 1, "Path to the VMAF model file"),
 #endif
+  .partition_info_path = ARG_DEF(NULL, "partition-info-path", 1,
+                                 "Partition information read and write path"),
   .film_grain_test = ARG_DEF(
       NULL, "film-grain-test", 1,
       "Film grain test vectors (0: none (default), 1: test-1  2: test-2, "
@@ -476,6 +495,10 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
               "Amount of noise (from 0 = don't denoise, to 50)"),
   .denoise_block_size = ARG_DEF(NULL, "denoise-block-size", 1,
                                 "Denoise block size (default = 32)"),
+  .enable_dnl_denoising = ARG_DEF(NULL, "enable-dnl-denoising", 1,
+                                  "Apply denoising to the frame "
+                                  "being encoded when denoise-noise-level is "
+                                  "enabled (0: false, 1: true (default))"),
 #endif
   .enable_ref_frame_mvs =
       ARG_DEF(NULL, "enable-ref-frame-mvs", 1,
@@ -494,7 +517,8 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .deltaq_mode =
       ARG_DEF(NULL, "deltaq-mode", 1,
               "Delta qindex mode (0: off, 1: deltaq objective (default), "
-              "2: deltaq perceptual). "
+              "2: deltaq placeholder, 3: key frame visual quality, 4: user "
+              "rating based visual quality optimization). "
               "Currently this requires enable-tpl-model as a prerequisite."),
   .deltalf_mode = ARG_DEF(NULL, "delta-lf-mode", 1,
                           "Enable delta-lf-mode (0: off (default), 1: on)"),
@@ -594,6 +618,28 @@ const av1_codec_arg_definitions_t g_av1_codec_arg_defs = {
   .vbr_corpus_complexity_lap = ARG_DEF(
       NULL, "vbr-corpus-complexity-lap", 1,
       "Set average corpus complexity per mb for single pass VBR using lap. "
-      "(0..10000), default is 0")
+      "(0..10000), default is 0"),
+
+  .fwd_kf_dist =
+      ARG_DEF(NULL, "fwd-kf-dist", -1,
+              "Set distance between forward keyframes. A value of -1 means no "
+              "repetitive forward keyframes. Default is -1."),
+
+  .enable_tx_size_search = ARG_DEF(
+      NULL, "enable-tx-size-search", 1,
+      "Enable transform size search to find the best size for each block. "
+      "If false, transforms always have the largest possible size "
+      "(0: false, 1: true (default))"),
+
+  .two_pass_input =
+      ARG_DEF(NULL, "two-pass-input", 1,
+              "The input file for the second pass for three-pass encoding."),
+  .two_pass_output = ARG_DEF(
+      NULL, "two-pass-output", 1,
+      "The output file for the first two passes for three-pass encoding."),
+  .two_pass_width =
+      ARG_DEF(NULL, "two-pass-width", 1, "The width of two-pass-input."),
+  .two_pass_height =
+      ARG_DEF(NULL, "two-pass-height", 1, "The height of two-pass-input."),
 #endif  // CONFIG_AV1_ENCODER
 };

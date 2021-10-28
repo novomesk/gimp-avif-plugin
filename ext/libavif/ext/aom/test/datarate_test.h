@@ -30,11 +30,6 @@ class DatarateTest : public ::libaom_test::EncoderTest {
  protected:
   virtual ~DatarateTest() {}
 
-  virtual void SetUp() {
-    InitializeConfig();
-    ResetModel();
-  }
-
   virtual void ResetModel() {
     last_pts_ = 0;
     bits_in_buffer_model_ = cfg_.rc_target_bitrate * cfg_.rc_buf_initial_sz;
@@ -68,6 +63,7 @@ class DatarateTest : public ::libaom_test::EncoderTest {
         encoder->Control(AV1E_SET_COEFF_COST_UPD_FREQ, 2);
         encoder->Control(AV1E_SET_MODE_COST_UPD_FREQ, 2);
         encoder->Control(AV1E_SET_MV_COST_UPD_FREQ, 2);
+        encoder->Control(AV1E_SET_DV_COST_UPD_FREQ, 2);
       }
     }
 
