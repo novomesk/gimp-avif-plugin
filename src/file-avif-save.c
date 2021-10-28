@@ -233,7 +233,6 @@ gboolean   save_layers (GFile         *file,
                         GimpMetadata  *metadata,
                         GError       **error)
 {
-  gchar          *filename;
   FILE           *outfile;
   GeglBuffer     *buffer;
   GimpImageType   drawable_type;
@@ -292,8 +291,7 @@ gboolean   save_layers (GFile         *file,
                     NULL);
     }
 
-  filename = g_file_get_path (file);
-  gimp_progress_init_printf ("Exporting '%s'. Wait, it is slow.", filename);
+  gimp_progress_init_printf ("Exporting '%s'. Wait, it is slow.", g_file_peek_path (file));
 
   g_object_get (config, "max-quantizer", &max_quantizer,
                 "min-quantizer", &min_quantizer,
@@ -1016,7 +1014,6 @@ gboolean   save_layers (GFile         *file,
           g_free (pixels);
           avifImageDestroy (avif);
           avifEncoderDestroy (encoder);
-          g_free (filename);
           return FALSE;
         }
 
@@ -1032,16 +1029,14 @@ gboolean   save_layers (GFile         *file,
     {
       gimp_progress_update (0.75);
       /* Let's take some file */
-      outfile = g_fopen (filename, "wb");
+      outfile = g_fopen (g_file_peek_path (file), "wb");
       if (!outfile)
         {
-          g_message ("Could not open '%s' for writing!\n", filename);
-          g_free (filename);
+          g_message ("Could not open '%s' for writing!\n", g_file_peek_path (file));
           avifRWDataFree (&raw);
           return FALSE;
         }
 
-      g_free (filename);
       fwrite (raw.data, 1, raw.size, outfile);
       fclose (outfile);
 
@@ -1055,7 +1050,5 @@ gboolean   save_layers (GFile         *file,
       g_message ("ERROR: Failed to encode: %s\n", avifResultToString (res));
     }
 
-  g_free (filename);
   return FALSE;
 }
-

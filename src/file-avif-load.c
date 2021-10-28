@@ -220,7 +220,6 @@ GimpImage *load_image (GFile       *file,
                        gboolean     interactive,
                        GError     **error)
 {
-  gchar            *filename = g_file_get_path (file);
   GimpImage        *image;
   GimpLayer        *layer;
   GeglBuffer       *buffer;
@@ -232,7 +231,7 @@ GimpImage *load_image (GFile       *file,
   GimpColorProfile *profile = NULL;
   GimpMetadata     *metadata = NULL;
 
-  FILE *inputFile = g_fopen (filename, "rb");
+  FILE *inputFile = g_fopen (g_file_peek_path (file), "rb");
 
   size_t            inputFileSize;
   avifRWData        raw = AVIF_DATA_EMPTY;
@@ -242,8 +241,7 @@ GimpImage *load_image (GFile       *file,
 
   if (!inputFile)
     {
-      g_message ("Cannot open file for read: %s\n", filename);
-      g_free (filename);
+      g_message ("Cannot open file for read: %s\n", g_file_peek_path (file));
       return NULL;
     }
 
@@ -253,20 +251,17 @@ GimpImage *load_image (GFile       *file,
 
   if (inputFileSize < 1)
     {
-      g_message ("File too small: %s\n", filename);
+      g_message ("File too small: %s\n", g_file_peek_path (file));
       fclose (inputFile);
-      g_free (filename);
       return NULL;
     }
 
   avifRWDataRealloc (&raw, inputFileSize);
   if (fread (raw.data, 1, inputFileSize, inputFile) != inputFileSize)
     {
-      g_message ("Failed to read %zu bytes: %s\n", inputFileSize, filename);
+      g_message ("Failed to read %zu bytes: %s\n", inputFileSize, g_file_peek_path (file));
       fclose (inputFile);
       avifRWDataFree (&raw);
-
-      g_free (filename);
       return NULL;
     }
 
@@ -275,9 +270,8 @@ GimpImage *load_image (GFile       *file,
 
   if (avifPeekCompatibleFileType ( (avifROData *) &raw) == AVIF_FALSE)
     {
-      g_message ("File %s is probably not in AVIF format!\n", filename);
+      g_message ("File %s is probably not in AVIF format!\n", g_file_peek_path (file));
       avifRWDataFree (&raw);
-      g_free (filename);
       return NULL;
     }
 
@@ -294,7 +288,6 @@ GimpImage *load_image (GFile       *file,
 
       avifDecoderDestroy (decoder);
       avifRWDataFree (&raw);
-      g_free (filename);
       return NULL;
     }
 
@@ -305,7 +298,6 @@ GimpImage *load_image (GFile       *file,
 
       avifDecoderDestroy (decoder);
       avifRWDataFree (&raw);
-      g_free (filename);
       return NULL;
     }
 
@@ -316,7 +308,6 @@ GimpImage *load_image (GFile       *file,
 
       avifDecoderDestroy (decoder);
       avifRWDataFree (&raw);
-      g_free (filename);
       return NULL;
     }
 
@@ -978,6 +969,5 @@ GimpImage *load_image (GFile       *file,
 
   avifDecoderDestroy (decoder);
   avifRWDataFree (&raw);
-  g_free (filename);
   return image;
 }
