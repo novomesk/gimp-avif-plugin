@@ -291,7 +291,7 @@ gboolean   save_layers (GFile         *file,
                     NULL);
     }
 
-  gimp_progress_init_printf ("Exporting '%s'. Wait, it is slow.", g_file_peek_path (file));
+  gimp_progress_init_printf ("Exporting '%s'. Wait, it is slow.", gimp_file_get_utf8_name (file));
 
   g_object_get (config, "max-quantizer", &max_quantizer,
                 "min-quantizer", &min_quantizer,
