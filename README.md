@@ -1,5 +1,5 @@
 # gimp-avif-plugin
-Plug-in for development GIMP 2.99.7 for loading/saving AVIF images.
+Plug-in for development GIMP 2.99.11 for loading/saving AVIF images.
 
 ![Saving AVIF image without transparency](img/export_avif.png)
 
