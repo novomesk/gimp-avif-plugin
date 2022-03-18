@@ -67,31 +67,6 @@ typedef struct
   gint  type;
 } XmpStructs;
 
-/* identical as gimp_image_metadata_copy_tag */
-static void
-avifplugin_image_metadata_copy_tag (GExiv2Metadata *src,
-                                    GExiv2Metadata *dest,
-                                    const gchar    *tag)
-{
-  gchar **values = gexiv2_metadata_try_get_tag_multiple (src, tag, NULL);
-
-  if (values)
-    {
-      gexiv2_metadata_try_set_tag_multiple (dest, tag, (const gchar **) values, NULL);
-      g_strfreev (values);
-    }
-  else
-    {
-      gchar *value = gexiv2_metadata_try_get_tag_string (src, tag, NULL);
-
-      if (value)
-        {
-          gexiv2_metadata_try_set_tag_string (dest, tag, value, NULL);
-          g_free (value);
-        }
-    }
-}
-
 static inline unsigned int Max (unsigned int a, unsigned int b)
 {
   return ( (a) > (b) ? a : b);
@@ -607,153 +582,84 @@ gboolean   save_layers (GFile         *file,
     }
 
 
-
-  if (save_exif && metadata)
+  if (metadata && (save_exif || save_xmp))
     {
-      if (gexiv2_metadata_get_supports_exif (GEXIV2_METADATA (metadata)) && gexiv2_metadata_has_exif (GEXIV2_METADATA (metadata)))
+      GimpMetadata         *filtered_metadata;
+      GimpMetadataSaveFlags metadata_flags = 0;
+
+      if (save_exif)
         {
-          GimpMetadata   *new_exif_metadata = gimp_metadata_new ();
-          GExiv2Metadata *new_gexiv2metadata = GEXIV2_METADATA (new_exif_metadata);
-          GBytes         *raw_exif_data;
-          gchar **exif_data = gexiv2_metadata_get_exif_tags (GEXIV2_METADATA (metadata));
+          metadata_flags |= GIMP_METADATA_SAVE_EXIF;
+        }
 
-          gexiv2_metadata_clear_exif (new_gexiv2metadata);
+      if (save_xmp)
+        {
+          metadata_flags |= GIMP_METADATA_SAVE_XMP;
+        }
 
-          for (i = 0; exif_data[i] != NULL; i++)
+      filtered_metadata = gimp_image_metadata_save_filter (image, "image/heif", metadata, metadata_flags, NULL, error);
+      if(! filtered_metadata)
+        {
+          if (error && *error)
             {
-              if (! gexiv2_metadata_has_tag (new_gexiv2metadata, exif_data[i]) &&
-                  gimp_metadata_is_tag_supported (exif_data[i], "image/avif"))
+              g_printerr ("%s: error filtering metadata: %s",
+                          G_STRFUNC, (*error)->message);
+              g_clear_error (error);
+            }
+        }
+      else
+        {
+          GExiv2Metadata *filtered_g2metadata = GEXIV2_METADATA (filtered_metadata);
+
+          /*  EXIF metadata  */
+          if (save_exif && gexiv2_metadata_has_exif (filtered_g2metadata))
+            {
+              GBytes *raw_exif_data;
+
+              raw_exif_data = gexiv2_metadata_get_exif_data (filtered_g2metadata, GEXIV2_BYTE_ORDER_LITTLE, error);
+              if (raw_exif_data)
                 {
-                  avifplugin_image_metadata_copy_tag (GEXIV2_METADATA (metadata),
-                                                      new_gexiv2metadata,
-                                                      exif_data[i]);
+                  gsize exif_size = 0;
+                  gconstpointer exif_buffer = g_bytes_get_data (raw_exif_data, &exif_size);
+
+                  if (exif_size >= 4)
+                    {
+                      avifImageSetMetadataExif (avif, (const uint8_t *) exif_buffer, exif_size);
+                    }
+                  g_bytes_unref (raw_exif_data);
+                }
+              else
+                {
+                  if (error && *error)
+                    {
+                      g_printerr ("%s: error preparing EXIF metadata: %s",
+                                  G_STRFUNC, (*error)->message);
+                      g_clear_error (error);
+                    }
                 }
             }
 
-          g_strfreev (exif_data);
-
-          raw_exif_data = gexiv2_metadata_get_exif_data (new_gexiv2metadata, GEXIV2_BYTE_ORDER_LITTLE, error);
-          if (raw_exif_data)
+          /*  XMP metadata  */
+          if (save_xmp && gexiv2_metadata_has_xmp (filtered_g2metadata))
             {
-              gsize exif_size = 0;
-              gconstpointer exif_buffer = g_bytes_get_data (raw_exif_data, &exif_size);
+              gchar *xmp_packet;
 
-              if (exif_size >= 4)
+              xmp_packet = gexiv2_metadata_try_generate_xmp_packet (filtered_g2metadata, GEXIV2_USE_COMPACT_FORMAT | GEXIV2_OMIT_ALL_FORMATTING, 0, NULL);
+              if (xmp_packet)
                 {
-                  avifImageSetMetadataExif (avif, (const uint8_t *) exif_buffer, exif_size);
+                  size_t xmp_size = strlen (xmp_packet);
+                  if (xmp_size > 0)
+                    {
+                      avifImageSetMetadataXMP (avif, (const uint8_t *) xmp_packet, xmp_size);
+                    }
+                  g_free (xmp_packet);
                 }
-              g_bytes_unref (raw_exif_data);
             }
 
-
-          g_object_unref (new_exif_metadata);
+          g_object_unref (filtered_metadata);
         }
     }
 
-
-  if (save_xmp && metadata)
-    {
-      if (gexiv2_metadata_get_supports_xmp (GEXIV2_METADATA (metadata)) && gexiv2_metadata_has_xmp (GEXIV2_METADATA (metadata)))
-        {
-          GimpMetadata  *new_metadata = gimp_metadata_new ();
-          GExiv2Metadata *new_g2metadata = GEXIV2_METADATA (new_metadata);
-
-          static const XmpStructs structlist[] =
-          {
-            { "Xmp.iptcExt.LocationCreated", GEXIV2_STRUCTURE_XA_BAG },
-            { "Xmp.iptcExt.LocationShown",   GEXIV2_STRUCTURE_XA_BAG },
-            { "Xmp.iptcExt.ArtworkOrObject", GEXIV2_STRUCTURE_XA_BAG },
-            { "Xmp.iptcExt.RegistryId",      GEXIV2_STRUCTURE_XA_BAG },
-            { "Xmp.xmpMM.History",           GEXIV2_STRUCTURE_XA_SEQ },
-            { "Xmp.plus.ImageSupplier",      GEXIV2_STRUCTURE_XA_SEQ },
-            { "Xmp.plus.ImageCreator",       GEXIV2_STRUCTURE_XA_SEQ },
-            { "Xmp.plus.CopyrightOwner",     GEXIV2_STRUCTURE_XA_SEQ },
-            { "Xmp.plus.Licensor",           GEXIV2_STRUCTURE_XA_SEQ }
-          };
-
-          gchar         **xmp_data;
-          struct timeval  timer_usec;
-          gint64          timestamp_usec;
-          gchar           ts[128];
-          gchar          *xmp_packet;
-
-          gexiv2_metadata_clear_xmp (new_g2metadata);
-
-          gettimeofday (&timer_usec, NULL);
-          timestamp_usec = ( (gint64) timer_usec.tv_sec) * 1000000ll +
-                           (gint64) timer_usec.tv_usec;
-          g_snprintf (ts, sizeof (ts), "%" G_GINT64_FORMAT, timestamp_usec);
-
-          gimp_metadata_add_xmp_history (metadata, "");
-
-          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
-                                              "Xmp.GIMP.TimeStamp",
-                                              ts, NULL);
-
-          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
-                                              "Xmp.xmp.CreatorTool",
-                                              "GIMP", NULL);
-
-          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
-                                              "Xmp.GIMP.Version",
-                                              GIMP_VERSION, NULL);
-
-          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
-                                              "Xmp.GIMP.API",
-                                              GIMP_API_VERSION, NULL);
-          gexiv2_metadata_try_set_tag_string (GEXIV2_METADATA (metadata),
-                                              "Xmp.GIMP.Platform",
-#if defined(_WIN32) || defined(__CYGWIN__) || defined(__MINGW32__)
-                                              "Windows"
-#elif defined(__linux__)
-                                              "Linux"
-#elif defined(__APPLE__) && defined(__MACH__)
-                                              "Mac OS"
-#elif defined(unix) || defined(__unix__) || defined(__unix)
-                                              "Unix"
-#else
-                                              "Unknown"
-#endif
-                                              , NULL);
-
-
-          xmp_data = gexiv2_metadata_get_xmp_tags (GEXIV2_METADATA (metadata));
-
-          /* Patch necessary structures */
-          for (i = 0; i < (gint) G_N_ELEMENTS (structlist); i++)
-            {
-              gexiv2_metadata_try_set_xmp_tag_struct (GEXIV2_METADATA (new_g2metadata),
-                                                      structlist[i].tag,
-                                                      structlist[i].type, NULL);
-            }
-
-          for (i = 0; xmp_data[i] != NULL; i++)
-            {
-              if (! gexiv2_metadata_has_tag (new_g2metadata, xmp_data[i]) &&
-                  gimp_metadata_is_tag_supported (xmp_data[i], "image/avif"))
-                {
-                  avifplugin_image_metadata_copy_tag (GEXIV2_METADATA (metadata),
-                                                      new_g2metadata,
-                                                      xmp_data[i]);
-                }
-            }
-
-          g_strfreev (xmp_data);
-
-          xmp_packet = gexiv2_metadata_try_generate_xmp_packet (new_g2metadata, GEXIV2_USE_COMPACT_FORMAT | GEXIV2_OMIT_ALL_FORMATTING, 0, NULL);
-          if (xmp_packet)
-            {
-              size_t xmpSize = strlen (xmp_packet);
-              if (xmpSize > 0)
-                {
-                  avifImageSetMetadataXMP (avif, (const uint8_t *) xmp_packet, xmpSize);
-                }
-              g_free (xmp_packet);
-            }
-
-          g_object_unref (new_metadata);
-        }
-    }
 
   if (max_quantizer > AVIF_QUANTIZER_WORST_QUALITY)
     {
