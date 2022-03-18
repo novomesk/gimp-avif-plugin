@@ -892,10 +892,10 @@ if (aom_config("CONFIG_AV1_ENCODER") eq "yes") {
   #
   foreach (@block_sizes) {
     ($w, $h) = @$_;
-    add_proto qw/void/, "aom_sad${w}x${h}x4d", "const uint8_t *src_ptr, int src_stride, const uint8_t * const ref_ptr[], int ref_stride, uint32_t *sad_array";
-    add_proto qw/void/, "aom_sad${w}x${h}x4d_avg", "const uint8_t *src_ptr, int src_stride, const uint8_t * const ref_ptr[], int ref_stride, const uint8_t *second_pred, uint32_t *sad_array";
-    add_proto qw/void/, "aom_sad_skip_${w}x${h}x4d", "const uint8_t *src_ptr, int src_stride, const uint8_t * const ref_ptr[], int ref_stride, uint32_t *sad_array";
-    add_proto qw/void/, "aom_masked_sad${w}x${h}x4d", "const uint8_t *src, int src_stride, const uint8_t *ref[], int ref_stride, const uint8_t *second_pred, const uint8_t *msk, int msk_stride, int invert_mask, unsigned sads[]";
+    add_proto qw/void/, "aom_sad${w}x${h}x4d", "const uint8_t *src_ptr, int src_stride, const uint8_t * const ref_ptr[4], int ref_stride, uint32_t sad_array[4]";
+    add_proto qw/void/, "aom_sad${w}x${h}x4d_avg", "const uint8_t *src_ptr, int src_stride, const uint8_t * const ref_ptr[4], int ref_stride, const uint8_t *second_pred, uint32_t sad_array[4]";
+    add_proto qw/void/, "aom_sad_skip_${w}x${h}x4d", "const uint8_t *src_ptr, int src_stride, const uint8_t * const ref_ptr[4], int ref_stride, uint32_t sad_array[4]";
+    add_proto qw/void/, "aom_masked_sad${w}x${h}x4d", "const uint8_t *src, int src_stride, const uint8_t *ref[4], int ref_stride, const uint8_t *second_pred, const uint8_t *msk, int msk_stride, int invert_mask, unsigned sads[4]";
   }
 
   specialize qw/aom_sad128x128x4d avx2          sse2/;
@@ -1084,7 +1084,7 @@ if (aom_config("CONFIG_AV1_ENCODER") eq "yes") {
     add_proto qw/void aom_highbd_minmax_8x8/, "const uint8_t *s, int p, const uint8_t *d, int dp, int *min, int *max";
   }
 
-  add_proto qw/void aom_int_pro_row/, "int16_t *hbuf, const uint8_t *ref, const int ref_stride, const int height";
+  add_proto qw/void aom_int_pro_row/, "int16_t hbuf[16], const uint8_t *ref, const int ref_stride, const int height";
   specialize qw/aom_int_pro_row sse2 neon/;
 
   add_proto qw/int16_t aom_int_pro_col/, "const uint8_t *ref, const int width";
@@ -1113,7 +1113,7 @@ if (aom_config("CONFIG_AV1_ENCODER") eq "yes") {
   specialize qw/aom_hadamard_lp_8x8 sse2 neon/;
 
   add_proto qw/void aom_hadamard_lp_16x16/, "const int16_t *src_diff, ptrdiff_t src_stride, int16_t *coeff";
-  specialize qw/aom_hadamard_lp_16x16 avx2 neon/;
+  specialize qw/aom_hadamard_lp_16x16 sse2 avx2 neon/;
 
 
   if (aom_config("CONFIG_AV1_HIGHBITDEPTH") eq "yes") {
@@ -1127,10 +1127,10 @@ if (aom_config("CONFIG_AV1_ENCODER") eq "yes") {
     specialize qw/aom_highbd_hadamard_32x32 avx2/;
   }
   add_proto qw/int aom_satd/, "const tran_low_t *coeff, int length";
-  specialize qw/aom_satd neon avx2/;
+  specialize qw/aom_satd neon sse2 avx2/;
 
   add_proto qw/int aom_satd_lp/, "const int16_t *coeff, int length";
-  specialize qw/aom_satd_lp avx2 neon/;
+  specialize qw/aom_satd_lp sse2 avx2 neon/;
 
 
   #
