@@ -943,7 +943,7 @@ GimpImage *load_image (GFile       *file,
   if (metadata && image)
     {
       GimpMetadataLoadFlags flags = GIMP_METADATA_LOAD_COMMENT | GIMP_METADATA_LOAD_RESOLUTION ;
-      gexiv2_metadata_erase_exif_thumbnail (GEXIV2_METADATA (metadata));
+      gexiv2_metadata_try_erase_exif_thumbnail (GEXIV2_METADATA (metadata), NULL);
       gimp_image_set_metadata (image, metadata);
 
       gimp_image_metadata_load_finish (image, "image/avif", metadata, flags);

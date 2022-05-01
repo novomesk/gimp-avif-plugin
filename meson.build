@@ -52,7 +52,7 @@ gimpplugindir    = gimp.get_pkgconfig_variable('gimplibdir')
 
 libgimpui_dep    = dependency('gimpui-3.0')
 
-gexiv2_minver    = '0.12.2'
+gexiv2_minver    = '0.14.0'
 gexiv2           = dependency('gexiv2',             version: '>='+gexiv2_minver)
 
 lcms_minver      = '2.8'
