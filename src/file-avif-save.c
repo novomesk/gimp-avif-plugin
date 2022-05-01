@@ -725,7 +725,6 @@ gboolean   save_layers (GFile         *file,
 
   if (save_alpha)
     {
-      avif->alphaRange = AVIF_RANGE_FULL;
       avifImageAllocatePlanes (avif, AVIF_PLANES_YUV | AVIF_PLANES_A);
     }
   else

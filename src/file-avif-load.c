@@ -524,11 +524,6 @@ GimpImage *load_image (GFile       *file,
                               tmpval16 = avifLimitedToFullY (10, tmpval16);
                             }
 
-                          if (avif->alphaRange == AVIF_RANGE_LIMITED)
-                            {
-                              tmp16_alpha = avifLimitedToFullY (10, tmp16_alpha);
-                            }
-
                           tmp_pixelval = (int) ( ( (float) tmpval16 / 1023.0f) * 65535.0f + 0.5f);
                           *gray16_pixel = CLAMP (tmp_pixelval, 0, 65535);
                           gray16_pixel++;
@@ -541,11 +536,6 @@ GimpImage *load_image (GFile       *file,
                           if (avif->yuvRange == AVIF_RANGE_LIMITED)
                             {
                               tmpval16 = avifLimitedToFullY (12, tmpval16);
-                            }
-
-                          if (avif->alphaRange == AVIF_RANGE_LIMITED)
-                            {
-                              tmp16_alpha = avifLimitedToFullY (12, tmp16_alpha);
                             }
 
                           tmp_pixelval = (int) ( ( (float) tmpval16 / 4095.0f) * 65535.0f + 0.5f);
@@ -654,14 +644,7 @@ GimpImage *load_image (GFile       *file,
                       gray8_pixel++;
                       gray8_src++;
 
-                      if (avif->alphaRange == AVIF_RANGE_FULL)
-                        {
-                          *gray8_pixel = *alpha8_src;
-                        }
-                      else
-                        {
-                          *gray8_pixel = avifLimitedToFullY (8, *alpha8_src);
-                        }
+                      *gray8_pixel = *alpha8_src;
                       gray8_pixel++;
                       alpha8_src++;
                     }
