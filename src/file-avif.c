@@ -111,6 +111,7 @@ avif_class_init (AvifClass *klass)
 
   plug_in_class->query_procedures = avif_query_procedures;
   plug_in_class->create_procedure = avif_create_procedure;
+  plug_in_class->set_i18n = NULL;
 }
 
 static void
