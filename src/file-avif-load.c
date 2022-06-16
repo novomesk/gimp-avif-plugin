@@ -239,6 +239,8 @@ GimpImage *load_image (GFile       *file,
   avifResult        decodeResult;
   avifImage        *avif;
 
+  gint              final_width, final_height;
+
   if (!inputFile)
     {
       g_message ("Cannot open file for read: %s\n", g_file_peek_path (file));
@@ -850,6 +852,9 @@ GimpImage *load_image (GFile       *file,
       profile = NULL;
     }
 
+  final_width = avif->width;
+  final_height = avif->height;
+
   /* transformations */
   if (avif->transformFlags & AVIF_TRANSFORM_CLAP)
     {
@@ -898,6 +903,8 @@ GimpImage *load_image (GFile       *file,
                 }
 
               gimp_image_crop (image, new_width, new_height, offx, offy);
+              final_width = new_width;
+              final_height = new_height;
             }
         }
 
@@ -909,16 +916,24 @@ GimpImage *load_image (GFile       *file,
 
   if (avif->transformFlags & AVIF_TRANSFORM_IROT)
     {
+      gint tmp;
+
       switch (avif->irot.angle)
         {
         case 1:
           gimp_image_rotate (image, GIMP_ROTATE_270);
+          tmp = final_width;
+          final_width = final_height;
+          final_height = tmp;
           break;
         case 2:
           gimp_image_rotate (image, GIMP_ROTATE_180);
           break;
         case 3:
           gimp_image_rotate (image, GIMP_ROTATE_90);
+          tmp = final_width;
+          final_width = final_height;
+          final_height = tmp;
           break;
         }
     }
@@ -944,7 +959,12 @@ GimpImage *load_image (GFile       *file,
     {
       GimpMetadataLoadFlags flags = GIMP_METADATA_LOAD_COMMENT | GIMP_METADATA_LOAD_RESOLUTION ;
       gexiv2_metadata_try_erase_exif_thumbnail (GEXIV2_METADATA (metadata), NULL);
-      gimp_image_set_metadata (image, metadata);
+      gexiv2_metadata_try_set_orientation (GEXIV2_METADATA (metadata),
+                                           GEXIV2_ORIENTATION_NORMAL, NULL);
+      gexiv2_metadata_try_set_metadata_pixel_width (GEXIV2_METADATA (metadata),
+                                                    final_width, NULL);
+      gexiv2_metadata_try_set_metadata_pixel_height (GEXIV2_METADATA (metadata),
+                                                     final_height, NULL);
 
       gimp_image_metadata_load_finish (image, "image/avif", metadata, flags);
     }
