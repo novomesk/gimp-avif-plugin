@@ -169,6 +169,8 @@ avif_create_procedure (GimpPlugIn  *plug_in,
       gimp_procedure_set_image_types (procedure, "*");
 
       gimp_procedure_set_menu_label (procedure, "AVIF image");
+      gimp_file_procedure_set_format_name (GIMP_FILE_PROCEDURE (procedure),
+                                           "AVIF");
 
       gimp_procedure_set_documentation (procedure,
                                         "Saves files in the AVIF image format",
