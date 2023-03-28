@@ -40,12 +40,19 @@ std::unordered_map<std::string,
                            { 10, { { 0, 34.7 }, { 3, 35.3 } } } } },
                        { "paris_352_288_30.y4m",
                          { { 5, { { 0, 36.2 }, { 3, 36.7 } } },
-                           { 6, { { 0, 36.1 }, { 3, 36.5 } } },
+                           { 6, { { 0, 36.1 }, { 3, 36.48 } } },
                            { 7, { { 0, 35.5 }, { 3, 36.0 } } },
-                           { 8, { { 0, 36.0 }, { 3, 36.5 } } },
+                           { 8, { { 0, 35.8 }, { 3, 36.48 } } },
                            { 9, { { 0, 35.5 }, { 3, 36.0 } } },
                            { 10, { { 0, 35.3 }, { 3, 35.9 } } } } },
                        { "niklas_1280_720_30.y4m",
+                         { { 5, { { 0, 34.4 }, { 3, 34.30 } } },
+                           { 6, { { 0, 34.2 }, { 3, 34.2 } } },
+                           { 7, { { 0, 33.5 }, { 3, 33.48 } } },
+                           { 8, { { 0, 33.48 }, { 3, 33.48 } } },
+                           { 9, { { 0, 33.4 }, { 3, 33.4 } } },
+                           { 10, { { 0, 33.2 }, { 3, 33.2 } } } } },
+                       { "hantro_collage_w352h288_nv12.yuv",
                          { { 5, { { 0, 34.4 }, { 3, 34.30 } } },
                            { 6, { { 0, 34.2 }, { 3, 34.2 } } },
                            { 7, { { 0, 33.6 }, { 3, 33.6 } } },
@@ -72,6 +79,7 @@ const TestVideoParam kTestVectors[] = {
   { "park_joy_90p_8_420.y4m", 8, AOM_IMG_FMT_I420, AOM_BITS_8, 0 },
   { "paris_352_288_30.y4m", 8, AOM_IMG_FMT_I420, AOM_BITS_8, 0 },
   { "niklas_1280_720_30.y4m", 8, AOM_IMG_FMT_I420, AOM_BITS_8, 0 },
+  { "hantro_collage_w352h288_nv12.yuv", 8, AOM_IMG_FMT_NV12, AOM_BITS_8, 0 },
 };
 
 // Params: test video, speed, aq mode, threads, tile columns.
@@ -151,9 +159,14 @@ class RTEndToEndTest
     if (cfg_.g_bit_depth > 8) init_flags_ |= AOM_CODEC_USE_HIGHBITDEPTH;
 
     std::unique_ptr<libaom_test::VideoSource> video;
-    video.reset(new libaom_test::Y4mVideoSource(test_video_param_.filename, 0,
-                                                kFrames));
-    ASSERT_TRUE(video.get() != NULL);
+    if (is_extension_y4m(test_video_param_.filename))
+      video.reset(new libaom_test::Y4mVideoSource(test_video_param_.filename, 0,
+                                                  kFrames));
+    else
+      video.reset(new libaom_test::YUVVideoSource(test_video_param_.filename,
+                                                  test_video_param_.fmt, 352,
+                                                  288, 30, 1, 0, kFrames));
+    ASSERT_NE(video, nullptr);
 
     ASSERT_NO_FATAL_FAILURE(RunLoop(video.get()));
     const double psnr = GetAveragePsnr();

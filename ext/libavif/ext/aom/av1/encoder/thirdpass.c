@@ -8,21 +8,19 @@
  * Media Patent License 1.0 was not distributed with this source code in the
  * PATENTS file, you can obtain it at www.aomedia.org/license/patent.
  */
+#include "av1/encoder/thirdpass.h"
 
+#if CONFIG_THREE_PASS && CONFIG_AV1_DECODER
 #include "aom/aom_codec.h"
 #include "aom/aomdx.h"
+#include "aom_dsp/psnr.h"
 #include "aom_mem/aom_mem.h"
 #include "av1/av1_iface_common.h"
 #include "av1/encoder/encoder.h"
 #include "av1/encoder/firstpass.h"
-#include "av1/encoder/thirdpass.h"
 #include "av1/common/blockd.h"
-
-#if CONFIG_THREE_PASS
 #include "common/ivfdec.h"
-#endif
 
-#if CONFIG_THREE_PASS
 static void setup_two_pass_stream_input(
     struct AvxInputContext **input_ctx_ptr, const char *input_file_name,
     struct aom_internal_error_info *err_info) {
@@ -63,7 +61,6 @@ static void init_third_pass(THIRD_PASS_DEC_CTX *ctx) {
                                 ctx->err_info);
   }
 
-#if CONFIG_AV1_DECODER
   if (!ctx->decoder.iface) {
     aom_codec_iface_t *decoder_iface = &aom_codec_av1_inspect_algo;
     if (aom_codec_dec_init(&ctx->decoder, decoder_iface, NULL, 0)) {
@@ -71,24 +68,17 @@ static void init_third_pass(THIRD_PASS_DEC_CTX *ctx) {
                          "Failed to initialize decoder.");
     }
   }
-#else
-  aom_internal_error(ctx->err_info, AOM_CODEC_ERROR,
-                     "To utilize three-pass encoding, libaom must be built "
-                     "with CONFIG_AV1_DECODER=1.");
-#endif
 }
-#endif  // CONFIG_THREE_PASS
 
 // Return 0: success
 //        1: cannot read because this is end of file
 //       -1: failure to read the frame
 static int read_frame(THIRD_PASS_DEC_CTX *ctx) {
-#if CONFIG_THREE_PASS
   if (!ctx->input_ctx || !ctx->decoder.iface) {
     init_third_pass(ctx);
   }
   if (!ctx->have_frame) {
-    if (ivf_read_frame(ctx->input_ctx->file, &ctx->buf, &ctx->bytes_in_buffer,
+    if (ivf_read_frame(ctx->input_ctx, &ctx->buf, &ctx->bytes_in_buffer,
                        &ctx->buffer_size, NULL) != 0) {
       if (feof(ctx->input_ctx->file)) {
         return 1;
@@ -100,10 +90,7 @@ static int read_frame(THIRD_PASS_DEC_CTX *ctx) {
     ctx->end_frame = ctx->frame + ctx->bytes_in_buffer;
     ctx->have_frame = 1;
   }
-#else
-  aom_internal_error(ctx->err_info, AOM_CODEC_ERROR,
-                     "Cannot parse bitstream without CONFIG_THREE_PASS.");
-#endif
+
   Av1DecodeReturn adr;
   if (aom_codec_decode(&ctx->decoder, ctx->frame,
                        (unsigned int)ctx->bytes_in_buffer,
@@ -111,6 +98,7 @@ static int read_frame(THIRD_PASS_DEC_CTX *ctx) {
     aom_internal_error(ctx->err_info, AOM_CODEC_ERROR,
                        "Failed to decode frame for third pass.");
   }
+  ctx->this_frame_bits = (int)(adr.buf - ctx->frame) << 3;
   ctx->frame = adr.buf;
   ctx->bytes_in_buffer = ctx->end_frame - ctx->frame;
   if (ctx->frame == ctx->end_frame) ctx->have_frame = 0;
@@ -132,11 +120,14 @@ static int get_frame_info(THIRD_PASS_DEC_CTX *ctx) {
   int ret = read_frame(ctx);
   if (ret != 0) return ret;
   int cur = ctx->frame_info_count;
+
+  ctx->frame_info[cur].actual_bits = ctx->this_frame_bits;
+
   if (cur >= MAX_THIRD_PASS_BUF) {
     aom_internal_error(ctx->err_info, AOM_CODEC_ERROR,
                        "Third pass frame info ran out of available slots.");
   }
-  int frame_type_flags = 0;
+  aom_codec_frame_flags_t frame_type_flags = 0;
   if (aom_codec_control(&ctx->decoder, AOMD_GET_FRAME_FLAGS,
                         &frame_type_flags) != AOM_CODEC_OK) {
     aom_internal_error(ctx->err_info, AOM_CODEC_ERROR,
@@ -177,7 +168,7 @@ static int get_frame_info(THIRD_PASS_DEC_CTX *ctx) {
 
     if (!ctx->frame_info[cur].mi_info) {
       aom_internal_error(ctx->err_info, AOM_CODEC_MEM_ERROR,
-                         "Failed to allocate mv buffer for the third pass.");
+                         "Failed to allocate mi buffer for the third pass.");
     }
   }
 
@@ -253,6 +244,7 @@ static int get_frame_info(THIRD_PASS_DEC_CTX *ctx) {
           this_mi[this_offset].mv[1] = cur_mi_info.mv[1];
           this_mi[this_offset].ref_frame[0] = cur_mi_info.ref_frame[0];
           this_mi[this_offset].ref_frame[1] = cur_mi_info.ref_frame[1];
+          this_mi[this_offset].pred_mode = cur_mi_info.mode;
         }
       }
     }
@@ -398,10 +390,8 @@ void av1_free_thirdpass_ctx(THIRD_PASS_DEC_CTX *ctx) {
   if (ctx->decoder.iface) {
     aom_codec_destroy(&ctx->decoder);
   }
-#if CONFIG_THREE_PASS
   if (ctx->input_ctx && ctx->input_ctx->file) fclose(ctx->input_ctx->file);
   aom_free(ctx->input_ctx);
-#endif
   if (ctx->buf) free(ctx->buf);
   for (int i = 0; i < MAX_THIRD_PASS_BUF; i++) {
     free_frame_info(&ctx->frame_info[i]);
@@ -416,13 +406,7 @@ void av1_write_second_pass_gop_info(AV1_COMP *cpi) {
 
   if (oxcf->pass == AOM_RC_SECOND_PASS && oxcf->second_pass_log) {
     // Write the GOP length to a log file.
-    if (!cpi->second_pass_log_stream) {
-      cpi->second_pass_log_stream = fopen(cpi->oxcf.second_pass_log, "wb");
-      if (!cpi->second_pass_log_stream) {
-        aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
-                           "Could not open second pass log file!");
-      }
-    }
+    av1_open_second_pass_log(cpi, 0);
 
     THIRD_PASS_GOP_INFO gop_info;
 
@@ -439,31 +423,129 @@ void av1_write_second_pass_gop_info(AV1_COMP *cpi) {
   }
 }
 
-void av1_read_second_pass_gop_info(AV1_COMP *cpi,
-                                   THIRD_PASS_GOP_INFO *gop_info) {
+void av1_write_second_pass_per_frame_info(AV1_COMP *cpi, int gf_index) {
   const AV1EncoderConfig *const oxcf = &cpi->oxcf;
+  const GF_GROUP *const gf_group = &cpi->ppi->gf_group;
 
-  if (oxcf->pass == AOM_RC_THIRD_PASS) {
-    if (oxcf->second_pass_log == NULL) {
-      aom_internal_error(
-          cpi->common.error, AOM_CODEC_INVALID_PARAM,
-          "No second pass log file specified for the third pass!");
-    }
-    // Read the GOP length from a file.
-    if (!cpi->second_pass_log_stream) {
-      cpi->second_pass_log_stream = fopen(cpi->oxcf.second_pass_log, "rb");
-      if (!cpi->second_pass_log_stream) {
-        aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
-                           "Could not open second pass log file!");
-      }
-    }
-
-    size_t count =
-        fread(gop_info, sizeof(*gop_info), 1, cpi->second_pass_log_stream);
+  if (oxcf->pass == AOM_RC_SECOND_PASS && oxcf->second_pass_log) {
+    // write target bitrate
+    int bits = gf_group->bit_allocation[gf_index];
+    size_t count = fwrite(&bits, sizeof(bits), 1, cpi->second_pass_log_stream);
     if (count < 1) {
       aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
+                         "Could not write to second pass log file!");
+    }
+
+    // write sse
+    uint64_t sse = 0;
+    int pkt_idx = cpi->ppi->output_pkt_list->cnt - 1;
+    if (pkt_idx >= 0 &&
+        cpi->ppi->output_pkt_list->pkts[pkt_idx].kind == AOM_CODEC_PSNR_PKT) {
+      sse = cpi->ppi->output_pkt_list->pkts[pkt_idx].data.psnr.sse[0];
+#if CONFIG_INTERNAL_STATS
+    } else if (cpi->ppi->b_calculate_psnr) {
+      sse = cpi->ppi->total_sq_error[0];
+#endif
+    } else {
+      const YV12_BUFFER_CONFIG *orig = cpi->source;
+      const YV12_BUFFER_CONFIG *recon = &cpi->common.cur_frame->buf;
+      PSNR_STATS psnr;
+#if CONFIG_AV1_HIGHBITDEPTH
+      const uint32_t in_bit_depth = cpi->oxcf.input_cfg.input_bit_depth;
+      const uint32_t bit_depth = cpi->td.mb.e_mbd.bd;
+      aom_calc_highbd_psnr(orig, recon, &psnr, bit_depth, in_bit_depth);
+#else
+      aom_calc_psnr(orig, recon, &psnr);
+#endif
+      sse = psnr.sse[0];
+    }
+
+    count = fwrite(&sse, sizeof(sse), 1, cpi->second_pass_log_stream);
+    if (count < 1) {
+      aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
+                         "Could not write to second pass log file!");
+    }
+
+    // write bpm_factor
+    double factor = cpi->ppi->twopass.bpm_factor;
+    count = fwrite(&factor, sizeof(factor), 1, cpi->second_pass_log_stream);
+    if (count < 1) {
+      aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
+                         "Could not write to second pass log file!");
+    }
+  }
+}
+void av1_open_second_pass_log(AV1_COMP *cpi, int is_read) {
+  const AV1EncoderConfig *const oxcf = &cpi->oxcf;
+  if (oxcf->second_pass_log == NULL) {
+    aom_internal_error(cpi->common.error, AOM_CODEC_INVALID_PARAM,
+                       "No second pass log file specified for the third pass!");
+  }
+  // Read the GOP length from a file.
+  if (!cpi->second_pass_log_stream) {
+    if (is_read) {
+      cpi->second_pass_log_stream = fopen(cpi->oxcf.second_pass_log, "rb");
+    } else {
+      cpi->second_pass_log_stream = fopen(cpi->oxcf.second_pass_log, "wb");
+    }
+    if (!cpi->second_pass_log_stream) {
+      aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
+                         "Could not open second pass log file!");
+    }
+  }
+}
+
+void av1_close_second_pass_log(AV1_COMP *cpi) {
+  if (cpi->second_pass_log_stream) {
+    int ret = fclose(cpi->second_pass_log_stream);
+    if (ret != 0) {
+      aom_internal_error(cpi->common.error, AOM_CODEC_ERROR,
+                         "Could not close second pass log file!");
+    }
+    cpi->second_pass_log_stream = 0;
+  }
+}
+
+void av1_read_second_pass_gop_info(FILE *second_pass_log_stream,
+                                   THIRD_PASS_GOP_INFO *gop_info,
+                                   struct aom_internal_error_info *error) {
+  size_t count = fread(gop_info, sizeof(*gop_info), 1, second_pass_log_stream);
+  if (count < 1) {
+    aom_internal_error(error, AOM_CODEC_ERROR,
+                       "Could not read from second pass log file!");
+  }
+}
+
+void av1_read_second_pass_per_frame_info(
+    FILE *second_pass_log_stream, THIRD_PASS_FRAME_INFO *frame_info_arr,
+    int frame_info_count, struct aom_internal_error_info *error) {
+  for (int i = 0; i < frame_info_count; i++) {
+    // read target bits
+    int bits = 0;
+    size_t count = fread(&bits, sizeof(bits), 1, second_pass_log_stream);
+    if (count < 1) {
+      aom_internal_error(error, AOM_CODEC_ERROR,
                          "Could not read from second pass log file!");
     }
+    frame_info_arr[i].bits_allocated = bits;
+
+    // read distortion
+    uint64_t sse;
+    count = fread(&sse, sizeof(sse), 1, second_pass_log_stream);
+    if (count < 1) {
+      aom_internal_error(error, AOM_CODEC_ERROR,
+                         "Could not read from second pass log file!");
+    }
+    frame_info_arr[i].sse = sse;
+
+    // read bpm factor
+    double factor;
+    count = fread(&factor, sizeof(factor), 1, second_pass_log_stream);
+    if (count < 1) {
+      aom_internal_error(error, AOM_CODEC_ERROR,
+                         "Could not read from second pass log file!");
+    }
+    frame_info_arr[i].bpm_factor = factor;
   }
 }
 
@@ -595,8 +677,8 @@ BLOCK_SIZE av1_get_third_pass_adjusted_blk_size(THIRD_PASS_MI_INFO *this_mi,
   return bsize;
 }
 
-PARTITION_TYPE av1_third_passget_sb_part_type(THIRD_PASS_DEC_CTX *ctx,
-                                              THIRD_PASS_MI_INFO *this_mi) {
+PARTITION_TYPE av1_third_pass_get_sb_part_type(THIRD_PASS_DEC_CTX *ctx,
+                                               THIRD_PASS_MI_INFO *this_mi) {
   int mi_stride = ctx->frame_info[0].mi_stride;
 
   int mi_row = this_mi->mi_row_start;
@@ -607,3 +689,189 @@ PARTITION_TYPE av1_third_passget_sb_part_type(THIRD_PASS_DEC_CTX *ctx,
 
   return corner_mi->partition;
 }
+
+#else   // !(CONFIG_THREE_PASS && CONFIG_AV1_DECODER)
+void av1_init_thirdpass_ctx(AV1_COMMON *cm, THIRD_PASS_DEC_CTX **ctx,
+                            const char *file) {
+  (void)ctx;
+  (void)file;
+  aom_internal_error(cm->error, AOM_CODEC_ERROR,
+                     "To utilize three-pass encoding, libaom must be built "
+                     "with CONFIG_THREE_PASS=1 & CONFIG_AV1_DECODER=1.");
+}
+
+void av1_free_thirdpass_ctx(THIRD_PASS_DEC_CTX *ctx) { (void)ctx; }
+
+void av1_set_gop_third_pass(THIRD_PASS_DEC_CTX *ctx) { (void)ctx; }
+
+void av1_pop_third_pass_info(THIRD_PASS_DEC_CTX *ctx) { (void)ctx; }
+
+void av1_open_second_pass_log(struct AV1_COMP *cpi, int is_read) {
+  (void)cpi;
+  (void)is_read;
+}
+
+void av1_close_second_pass_log(struct AV1_COMP *cpi) { (void)cpi; }
+
+void av1_write_second_pass_gop_info(struct AV1_COMP *cpi) { (void)cpi; }
+
+void av1_write_second_pass_per_frame_info(struct AV1_COMP *cpi, int gf_index) {
+  (void)cpi;
+  (void)gf_index;
+}
+
+void av1_read_second_pass_gop_info(FILE *second_pass_log_stream,
+                                   THIRD_PASS_GOP_INFO *gop_info,
+                                   struct aom_internal_error_info *error) {
+  (void)second_pass_log_stream;
+  (void)gop_info;
+  (void)error;
+}
+
+void av1_read_second_pass_per_frame_info(
+    FILE *second_pass_log_stream, THIRD_PASS_FRAME_INFO *frame_info_arr,
+    int frame_info_count, struct aom_internal_error_info *error) {
+  (void)second_pass_log_stream;
+  (void)frame_info_arr;
+  (void)frame_info_count;
+  (void)error;
+}
+
+int av1_check_use_arf(THIRD_PASS_DEC_CTX *ctx) {
+  (void)ctx;
+  return 1;
+}
+
+void av1_get_third_pass_ratio(THIRD_PASS_DEC_CTX *ctx, int fidx, int fheight,
+                              int fwidth, double *ratio_h, double *ratio_w) {
+  (void)ctx;
+  (void)fidx;
+  (void)fheight;
+  (void)fwidth;
+  (void)ratio_h;
+  (void)ratio_w;
+}
+
+THIRD_PASS_MI_INFO *av1_get_third_pass_mi(THIRD_PASS_DEC_CTX *ctx, int fidx,
+                                          int mi_row, int mi_col,
+                                          double ratio_h, double ratio_w) {
+  (void)ctx;
+  (void)fidx;
+  (void)mi_row;
+  (void)mi_col;
+  (void)ratio_h;
+  (void)ratio_w;
+  return NULL;
+}
+
+int_mv av1_get_third_pass_adjusted_mv(THIRD_PASS_MI_INFO *this_mi,
+                                      double ratio_h, double ratio_w,
+                                      MV_REFERENCE_FRAME frame) {
+  (void)this_mi;
+  (void)ratio_h;
+  (void)ratio_w;
+  (void)frame;
+  int_mv mv;
+  mv.as_int = INVALID_MV;
+  return mv;
+}
+
+BLOCK_SIZE av1_get_third_pass_adjusted_blk_size(THIRD_PASS_MI_INFO *this_mi,
+                                                double ratio_h,
+                                                double ratio_w) {
+  (void)this_mi;
+  (void)ratio_h;
+  (void)ratio_w;
+  return BLOCK_INVALID;
+}
+
+void av1_third_pass_get_adjusted_mi(THIRD_PASS_MI_INFO *third_pass_mi,
+                                    double ratio_h, double ratio_w, int *mi_row,
+                                    int *mi_col) {
+  (void)third_pass_mi;
+  (void)ratio_h;
+  (void)ratio_w;
+  (void)mi_row;
+  (void)mi_col;
+}
+
+PARTITION_TYPE av1_third_pass_get_sb_part_type(THIRD_PASS_DEC_CTX *ctx,
+                                               THIRD_PASS_MI_INFO *this_mi) {
+  (void)ctx;
+  (void)this_mi;
+  return PARTITION_INVALID;
+}
+#endif  // CONFIG_THREE_PASS && CONFIG_AV1_DECODER
+
+#if CONFIG_BITRATE_ACCURACY
+static void fwrite_and_check(const void *ptr, size_t size, size_t nmemb,
+                             FILE *stream,
+                             struct aom_internal_error_info *error) {
+  size_t count = fwrite(ptr, size, nmemb, stream);
+  if (count < nmemb) {
+    aom_internal_error(error, AOM_CODEC_ERROR, "fwrite_and_check failed\n");
+  }
+}
+
+static void fread_and_check(void *ptr, size_t size, size_t nmemb, FILE *stream,
+                            struct aom_internal_error_info *error) {
+  size_t count = fread(ptr, size, nmemb, stream);
+  if (count < nmemb) {
+    aom_internal_error(error, AOM_CODEC_ERROR, "fread_and_check failed\n");
+  }
+}
+
+void av1_pack_tpl_info(TPL_INFO *tpl_info, const GF_GROUP *gf_group,
+                       const TplParams *tpl_data) {
+  tpl_info->tpl_ready = tpl_data->ready;
+  if (tpl_info->tpl_ready) {
+    tpl_info->gf_length = gf_group->size;
+    for (int i = 0; i < tpl_info->gf_length; ++i) {
+      tpl_info->txfm_stats_list[i] = tpl_data->txfm_stats_list[i];
+      tpl_info->qstep_ratio_ls[i] = av1_tpl_get_qstep_ratio(tpl_data, i);
+      tpl_info->update_type_list[i] = gf_group->update_type[i];
+    }
+  }
+}
+
+void av1_write_tpl_info(const TPL_INFO *tpl_info, FILE *log_stream,
+                        struct aom_internal_error_info *error) {
+  fwrite_and_check(&tpl_info->tpl_ready, sizeof(tpl_info->tpl_ready), 1,
+                   log_stream, error);
+  if (tpl_info->tpl_ready) {
+    fwrite_and_check(&tpl_info->gf_length, sizeof(tpl_info->gf_length), 1,
+                     log_stream, error);
+    assert(tpl_info->gf_length <= MAX_LENGTH_TPL_FRAME_STATS);
+    fwrite_and_check(&tpl_info->txfm_stats_list,
+                     sizeof(tpl_info->txfm_stats_list[0]), tpl_info->gf_length,
+                     log_stream, error);
+    fwrite_and_check(&tpl_info->qstep_ratio_ls,
+                     sizeof(tpl_info->qstep_ratio_ls[0]), tpl_info->gf_length,
+                     log_stream, error);
+    fwrite_and_check(&tpl_info->update_type_list,
+                     sizeof(tpl_info->update_type_list[0]), tpl_info->gf_length,
+                     log_stream, error);
+  }
+}
+
+void av1_read_tpl_info(TPL_INFO *tpl_info, FILE *log_stream,
+                       struct aom_internal_error_info *error) {
+  av1_zero(*tpl_info);
+  fread_and_check(&tpl_info->tpl_ready, sizeof(tpl_info->tpl_ready), 1,
+                  log_stream, error);
+  if (tpl_info->tpl_ready) {
+    fread_and_check(&tpl_info->gf_length, sizeof(tpl_info->gf_length), 1,
+                    log_stream, error);
+    assert(tpl_info->gf_length <= MAX_LENGTH_TPL_FRAME_STATS);
+    fread_and_check(&tpl_info->txfm_stats_list,
+                    sizeof(tpl_info->txfm_stats_list[0]), tpl_info->gf_length,
+                    log_stream, error);
+    fread_and_check(&tpl_info->qstep_ratio_ls,
+                    sizeof(tpl_info->qstep_ratio_ls[0]), tpl_info->gf_length,
+                    log_stream, error);
+    fread_and_check(&tpl_info->update_type_list,
+                    sizeof(tpl_info->update_type_list[0]), tpl_info->gf_length,
+                    log_stream, error);
+  }
+}
+#endif  // CONFIG_BITRATE_ACCURACY

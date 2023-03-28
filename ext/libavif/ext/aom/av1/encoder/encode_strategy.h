@@ -68,44 +68,26 @@ void av1_configure_buffer_updates(AV1_COMP *const cpi,
                                   const REFBUF_STATE refbuf_state,
                                   int force_refresh_all);
 
-int av1_get_refresh_frame_flags(const AV1_COMP *const cpi,
-                                const EncodeFrameParams *const frame_params,
-                                FRAME_UPDATE_TYPE frame_update_type,
-                                int gf_index,
-#if CONFIG_FRAME_PARALLEL_ENCODE
-                                int cur_disp_order,
-                                RefFrameMapPair ref_frame_map_pairs[REF_FRAMES],
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
-                                const RefBufferStack *const ref_buffer_stack);
+int av1_get_refresh_frame_flags(
+    const AV1_COMP *const cpi, const EncodeFrameParams *const frame_params,
+    FRAME_UPDATE_TYPE frame_update_type, int gf_index, int cur_disp_order,
+    RefFrameMapPair ref_frame_map_pairs[REF_FRAMES]);
 
 int av1_get_refresh_ref_frame_map(int refresh_frame_flags);
 
-void av1_update_ref_frame_map(const AV1_COMP *cpi,
-                              FRAME_UPDATE_TYPE frame_update_type,
-                              REFBUF_STATE refbuf_state, int ref_map_index,
-                              RefBufferStack *ref_buffer_stack);
-
-/*!\brief Obtain indices of reference frames from reference frame buffer stacks
+/*!\brief Obtain indices of reference frames in ref_frame_map
  *
  * \callgraph
  * \callergraph
  *
- * \param[in]    ref_buffer_stack  Data structure for reference frame buffer
- *                                 stacks.
  * \param[out]   remapped_ref_idx  An array for storing indices of reference
  *                                 frames. The index is used to retrieve a
  *                                 reference frame buffer from ref_frame_map
  *                                 in AV1Common.
  */
-void av1_get_ref_frames(const RefBufferStack *ref_buffer_stack,
-#if CONFIG_FRAME_PARALLEL_ENCODE
-                        RefFrameMapPair ref_frame_map_pairs[REF_FRAMES],
-                        int cur_frame_disp,
-#if CONFIG_FRAME_PARALLEL_ENCODE_2
-                        const AV1_COMP *cpi, int gf_index,
+void av1_get_ref_frames(RefFrameMapPair ref_frame_map_pairs[REF_FRAMES],
+                        int cur_frame_disp, const AV1_COMP *cpi, int gf_index,
                         int is_parallel_encode,
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE_2
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
                         int remapped_ref_idx[REF_FRAMES]);
 
 int is_forced_keyframe_pending(struct lookahead_ctx *lookahead,
@@ -113,12 +95,12 @@ int is_forced_keyframe_pending(struct lookahead_ctx *lookahead,
                                const COMPRESSOR_STAGE compressor_stage);
 
 static AOM_INLINE int is_frame_droppable(
-    const SVC *const svc,
+    const RTC_REF *const rtc_ref,
     const ExtRefreshFrameFlagsInfo *const ext_refresh_frame_flags) {
   // Droppable frame is only used by external refresh flags. VoD setting won't
   // trigger its use case.
-  if (svc->set_ref_frame_config)
-    return svc->non_reference_frame;
+  if (rtc_ref->set_ref_frame_config)
+    return rtc_ref->non_reference_frame;
   else if (ext_refresh_frame_flags->update_pending)
     return !(ext_refresh_frame_flags->alt_ref_frame ||
              ext_refresh_frame_flags->alt2_ref_frame ||
@@ -145,13 +127,9 @@ static AOM_INLINE int get_current_frame_ref_type(const AV1_COMP *const cpi) {
   }
 }
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
-#if CONFIG_FRAME_PARALLEL_ENCODE_2
 int av1_calc_refresh_idx_for_intnl_arf(
     AV1_COMP *cpi, RefFrameMapPair ref_frame_map_pairs[REF_FRAMES],
     int gf_index);
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE_2
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
 /*!\endcond */
 #ifdef __cplusplus
 }  // extern "C"

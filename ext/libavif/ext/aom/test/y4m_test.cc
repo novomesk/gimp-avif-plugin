@@ -78,7 +78,7 @@ class Y4mVideoSourceTest : public ::testing::TestWithParam<Y4mTestParam>,
 
   // Checks y4m header information
   void HeaderChecks(unsigned int bit_depth, aom_img_fmt_t fmt) {
-    ASSERT_TRUE(input_file_ != NULL);
+    ASSERT_NE(input_file_, nullptr);
     ASSERT_EQ(y4m_.pic_w, (int)kWidth);
     ASSERT_EQ(y4m_.pic_h, (int)kHeight);
     ASSERT_EQ(img()->d_w, kWidth);
@@ -104,7 +104,7 @@ class Y4mVideoSourceTest : public ::testing::TestWithParam<Y4mTestParam>,
 
   // Checks MD5 of the raw frame data
   void Md5Check(const string &expected_md5) {
-    ASSERT_TRUE(input_file_ != NULL);
+    ASSERT_NE(input_file_, nullptr);
     libaom_test::MD5 md5;
     for (unsigned int i = start_; i < limit_; i++) {
       md5.Add(img());
@@ -126,11 +126,11 @@ INSTANTIATE_TEST_SUITE_P(C, Y4mVideoSourceTest,
 
 class Y4mVideoWriteTest : public Y4mVideoSourceTest {
  protected:
-  Y4mVideoWriteTest() : tmpfile_(NULL) {}
+  Y4mVideoWriteTest() : tmpfile_(nullptr) {}
 
   virtual ~Y4mVideoWriteTest() {
     delete tmpfile_;
-    input_file_ = NULL;
+    input_file_ = nullptr;
   }
 
   void ReplaceInputFile(FILE *input_file) {
@@ -143,11 +143,12 @@ class Y4mVideoWriteTest : public Y4mVideoSourceTest {
 
   // Writes out a y4m file and then reads it back
   void WriteY4mAndReadBack() {
-    ASSERT_TRUE(input_file_ != NULL);
+    ASSERT_NE(input_file_, nullptr);
     char buf[Y4M_BUFFER_SIZE] = { 0 };
     const struct AvxRational framerate = { y4m_.fps_n, y4m_.fps_d };
     tmpfile_ = new libaom_test::TempOutFile;
-    ASSERT_TRUE(tmpfile_->file() != NULL);
+    ASSERT_NE(tmpfile_, nullptr);
+    ASSERT_NE(tmpfile_->file(), nullptr);
     y4m_write_file_header(buf, sizeof(buf), kWidth, kHeight, &framerate,
                           img()->monochrome, img()->csp, y4m_.aom_fmt,
                           y4m_.bit_depth, AOM_CR_STUDIO_RANGE);
@@ -185,12 +186,13 @@ static const char kY4MRegularHeader[] =
 
 TEST(Y4MHeaderTest, RegularHeader) {
   libaom_test::TempOutFile f;
+  ASSERT_NE(f.file(), nullptr);
   fwrite(kY4MRegularHeader, 1, sizeof(kY4MRegularHeader), f.file());
   fflush(f.file());
   EXPECT_EQ(0, fseek(f.file(), 0, 0));
 
   y4m_input y4m;
-  EXPECT_EQ(y4m_input_open(&y4m, f.file(), NULL, 0, AOM_CSP_UNKNOWN,
+  EXPECT_EQ(y4m_input_open(&y4m, f.file(), nullptr, 0, AOM_CSP_UNKNOWN,
                            /*only_420=*/0),
             0);
   EXPECT_EQ(y4m.pic_w, 4);
@@ -213,12 +215,13 @@ static const char kY4MLongHeader[] =
 TEST(Y4MHeaderTest, LongHeader) {
   libaom_test::TempOutFile tmpfile;
   FILE *f = tmpfile.file();
+  ASSERT_NE(f, nullptr);
   fwrite(kY4MLongHeader, 1, sizeof(kY4MLongHeader), f);
   fflush(f);
   EXPECT_EQ(fseek(f, 0, 0), 0);
 
   y4m_input y4m;
-  EXPECT_EQ(y4m_input_open(&y4m, f, NULL, 0, AOM_CSP_UNKNOWN,
+  EXPECT_EQ(y4m_input_open(&y4m, f, nullptr, 0, AOM_CSP_UNKNOWN,
                            /*only_420=*/0),
             0);
   EXPECT_EQ(y4m.pic_w, 4);
@@ -239,12 +242,13 @@ static const char kY4MFullRangeHeader[] =
 TEST(Y4MHeaderTest, FullRangeHeader) {
   libaom_test::TempOutFile tmpfile;
   FILE *f = tmpfile.file();
+  ASSERT_NE(f, nullptr);
   fwrite(kY4MFullRangeHeader, 1, sizeof(kY4MFullRangeHeader), f);
   fflush(f);
   EXPECT_EQ(fseek(f, 0, 0), 0);
 
   y4m_input y4m;
-  EXPECT_EQ(y4m_input_open(&y4m, f, NULL, 0, AOM_CSP_UNKNOWN,
+  EXPECT_EQ(y4m_input_open(&y4m, f, nullptr, 0, AOM_CSP_UNKNOWN,
                            /*only_420=*/0),
             0);
   EXPECT_EQ(y4m.pic_w, 4);

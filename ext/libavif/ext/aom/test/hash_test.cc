@@ -49,7 +49,7 @@ class AV1Crc32cHashTest : public ::testing::TestWithParam<HashParam> {
   size_t length_;
 };
 
-AV1Crc32cHashTest::~AV1Crc32cHashTest() { ; }
+AV1Crc32cHashTest::~AV1Crc32cHashTest() {}
 
 void AV1Crc32cHashTest::SetUp() {
   rnd_.Reset(libaom_test::ACMRandom::DeterministicSeed());
@@ -58,7 +58,7 @@ void AV1Crc32cHashTest::SetUp() {
   bsize_ = GET_PARAM(1);
   length_ = bsize_ * bsize_ * sizeof(uint16_t);
   buffer_ = new uint8_t[length_];
-  ASSERT_TRUE(buffer_ != NULL);
+  ASSERT_NE(buffer_, nullptr);
   for (size_t i = 0; i < length_; ++i) {
     buffer_[i] = rnd_.Rand8();
   }
@@ -128,6 +128,13 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     SSE4_2, AV1Crc32cHashTest,
     ::testing::Combine(::testing::Values(&av1_get_crc32c_value_sse4_2),
+                       ::testing::ValuesIn(kValidBlockSize)));
+#endif
+
+#if HAVE_ARM_CRC32
+INSTANTIATE_TEST_SUITE_P(
+    ARM_CRC32, AV1Crc32cHashTest,
+    ::testing::Combine(::testing::Values(&av1_get_crc32c_value_arm_crc32),
                        ::testing::ValuesIn(kValidBlockSize)));
 #endif
 

@@ -37,7 +37,7 @@ class AVxFirstPassEncoderThreadTest
     init_flags_ = AOM_CODEC_USE_PSNR;
 
     row_mt_ = 1;
-    firstpass_stats_.buf = NULL;
+    firstpass_stats_.buf = nullptr;
     firstpass_stats_.sz = 0;
   }
   virtual ~AVxFirstPassEncoderThreadTest() { free(firstpass_stats_.buf); }
@@ -95,6 +95,7 @@ class AVxFirstPassEncoderThreadTest
 
     firstpass_stats_.buf =
         realloc(firstpass_stats_.buf, firstpass_stats_.sz + pkt_size);
+    ASSERT_NE(firstpass_stats_.buf, nullptr);
     memcpy((uint8_t *)firstpass_stats_.buf + firstpass_stats_.sz, pkt_buf,
            pkt_size);
     firstpass_stats_.sz += pkt_size;
@@ -304,7 +305,7 @@ class AVxEncoderThreadTest
 
   void DoTest() {
     ::libaom_test::YUVVideoSource video(
-        "niklas_640_480_30.yuv", AOM_IMG_FMT_I420, 640, 480, 30, 1, 15, 21);
+        "niklas_640_480_30.yuv", AOM_IMG_FMT_I420, 640, 480, 30, 1, 15, 26);
     cfg_.rc_target_bitrate = 1000;
 
     if (row_mt_ == 0) {
@@ -440,10 +441,10 @@ TEST_P(AVxEncoderThreadRTTest, EncoderResultTest) {
   DoTest();
 }
 
-// For real time mode, test speed 6, 7, 8, 9.
+// For real time mode, test speed 5, 6, 7, 8, 9, 10.
 AV1_INSTANTIATE_TEST_SUITE(AVxEncoderThreadRTTest,
                            ::testing::Values(::libaom_test::kRealTime),
-                           ::testing::Values(6, 7, 8, 9),
+                           ::testing::Values(5, 6, 7, 8, 9, 10),
                            ::testing::Values(0, 2), ::testing::Values(0, 2),
                            ::testing::Values(0, 1));
 

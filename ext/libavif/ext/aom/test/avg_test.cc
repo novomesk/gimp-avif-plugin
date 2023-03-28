@@ -10,12 +10,16 @@
 
 #include <stdlib.h>
 #include <ostream>
+#include <string>
 #include <tuple>
 
 #include "third_party/googletest/src/googletest/include/gtest/gtest.h"
 
+#include "config/aom_config.h"
 #include "config/aom_dsp_rtcd.h"
 
+#include "aom_ports/aom_timer.h"
+#include "aom_ports/mem.h"
 #include "test/acm_random.h"
 #include "test/register_state_check.h"
 #include "test/util.h"
@@ -27,24 +31,36 @@ using libaom_test::ACMRandom;
 template <typename Pixel>
 class AverageTestBase : public ::testing::Test {
  public:
-  AverageTestBase(int width, int height)
-      : width_(width), height_(height), source_data_(NULL), source_stride_(0),
-        bit_depth_(8) {}
+  AverageTestBase(int width, int height, int bit_depth = 8)
+      : width_(width), height_(height), source_data_(nullptr),
+        source_stride_(0), bit_depth_(bit_depth) {}
 
   virtual void TearDown() {
     aom_free(source_data_);
-    source_data_ = NULL;
+    source_data_ = nullptr;
   }
 
  protected:
   // Handle blocks up to 4 blocks 64x64 with stride up to 128
   static const int kDataAlignment = 16;
-  static const int kDataBlockSize = 64 * 128;
+  static const int kDataBlockWidth = 128;
+  static const int kDataBlockHeight = 128;
+  static const int kDataBlockSize = kDataBlockWidth * kDataBlockHeight;
 
   virtual void SetUp() {
+    const testing::TestInfo *const test_info =
+        testing::UnitTest::GetInstance()->current_test_info();
+    // Skip the speed test for C code as the baseline uses the same function.
+    if (std::string(test_info->test_suite_name()).find("C/") == 0 &&
+        std::string(test_info->name()).find("DISABLED_Speed") !=
+            std::string::npos) {
+      GTEST_SKIP();
+    }
+
     source_data_ = static_cast<Pixel *>(
         aom_memalign(kDataAlignment, kDataBlockSize * sizeof(source_data_[0])));
-    ASSERT_TRUE(source_data_ != NULL);
+    ASSERT_NE(source_data_, nullptr);
+    memset(source_data_, 0, kDataBlockSize * sizeof(source_data_[0]));
     source_stride_ = (width_ + 31) & ~31;
     bit_depth_ = 8;
     rnd_.Reset(ACMRandom::DeterministicSeed());
@@ -57,6 +73,20 @@ class AverageTestBase : public ::testing::Test {
       for (int w = 0; w < 8; ++w) average += source[h * pitch + w];
     }
     return (average + 32) >> 6;
+  }
+
+  static void ReferenceAverage8x8_quad(const uint8_t *source, int pitch,
+                                       int x16_idx, int y16_idx, int *avg) {
+    for (int k = 0; k < 4; k++) {
+      int average = 0;
+      int x8_idx = x16_idx + ((k & 1) << 3);
+      int y8_idx = y16_idx + ((k >> 1) << 3);
+      for (int h = 0; h < 8; ++h) {
+        for (int w = 0; w < 8; ++w)
+          average += source[(h + y8_idx) * pitch + w + x8_idx];
+      }
+      avg[k] = (average + 32) >> 6;
+    }
   }
 
   static unsigned int ReferenceAverage4x4(const Pixel *source, int pitch) {
@@ -88,103 +118,307 @@ class AverageTestBase : public ::testing::Test {
 };
 typedef unsigned int (*AverageFunction)(const uint8_t *s, int pitch);
 
-// Arguments: width, height, pitch, block size, avg function.
-typedef std::tuple<int, int, int, int, AverageFunction> AvgFunc;
+// Arguments: width, height, bit_depth, buffer start offset, block size, avg
+// function.
+typedef std::tuple<int, int, int, int, int, AverageFunction> AvgFunc;
 
-class AverageTest : public AverageTestBase<uint8_t>,
+template <typename Pixel>
+class AverageTest : public AverageTestBase<Pixel>,
                     public ::testing::WithParamInterface<AvgFunc> {
  public:
-  AverageTest() : AverageTestBase(GET_PARAM(0), GET_PARAM(1)) {}
+  AverageTest()
+      : AverageTestBase<Pixel>(GET_PARAM(0), GET_PARAM(1), GET_PARAM(2)) {}
 
  protected:
+  using AverageTestBase<Pixel>::source_data_;
+  using AverageTestBase<Pixel>::source_stride_;
+  using AverageTestBase<Pixel>::ReferenceAverage8x8;
+  using AverageTestBase<Pixel>::ReferenceAverage4x4;
+  using AverageTestBase<Pixel>::FillConstant;
+  using AverageTestBase<Pixel>::FillRandom;
+
   void CheckAverages() {
-    const int block_size = GET_PARAM(3);
+    const int block_size = GET_PARAM(4);
     unsigned int expected = 0;
+
+    // The reference frame, but not the source frame, may be unaligned for
+    // certain types of searches.
+    const Pixel *const src = source_data_ + GET_PARAM(3);
     if (block_size == 8) {
-      expected =
-          ReferenceAverage8x8(source_data_ + GET_PARAM(2), source_stride_);
+      expected = ReferenceAverage8x8(src, source_stride_);
     } else if (block_size == 4) {
-      expected =
-          ReferenceAverage4x4(source_data_ + GET_PARAM(2), source_stride_);
+      expected = ReferenceAverage4x4(src, source_stride_);
     }
 
+    aom_usec_timer timer;
     unsigned int actual;
-    API_REGISTER_STATE_CHECK(
-        actual = GET_PARAM(4)(source_data_ + GET_PARAM(2), source_stride_));
+    if (sizeof(Pixel) == 2) {
+#if CONFIG_AV1_HIGHBITDEPTH
+      AverageFunction avg_c =
+          (block_size == 8) ? aom_highbd_avg_8x8_c : aom_highbd_avg_4x4_c;
+      // To avoid differences in optimization with the local Reference*()
+      // functions the C implementation is used as a baseline.
+      aom_usec_timer_start(&timer);
+      avg_c(CONVERT_TO_BYTEPTR(src), source_stride_);
+      aom_usec_timer_mark(&timer);
+      ref_elapsed_time_ += aom_usec_timer_elapsed(&timer);
+
+      AverageFunction avg_opt = GET_PARAM(5);
+      API_REGISTER_STATE_CHECK(
+          aom_usec_timer_start(&timer);
+          actual = avg_opt(CONVERT_TO_BYTEPTR(src), source_stride_);
+          aom_usec_timer_mark(&timer));
+#endif  // CONFIG_AV1_HIGHBITDEPTH
+    } else {
+      ASSERT_EQ(sizeof(Pixel), 1u);
+
+      AverageFunction avg_c = (block_size == 8) ? aom_avg_8x8_c : aom_avg_4x4_c;
+      aom_usec_timer_start(&timer);
+      avg_c(reinterpret_cast<const uint8_t *>(src), source_stride_);
+      aom_usec_timer_mark(&timer);
+      ref_elapsed_time_ += aom_usec_timer_elapsed(&timer);
+
+      AverageFunction avg_opt = GET_PARAM(5);
+      API_REGISTER_STATE_CHECK(
+          aom_usec_timer_start(&timer);
+          actual =
+              avg_opt(reinterpret_cast<const uint8_t *>(src), source_stride_);
+          aom_usec_timer_mark(&timer));
+    }
+    opt_elapsed_time_ += aom_usec_timer_elapsed(&timer);
 
     EXPECT_EQ(expected, actual);
   }
+
+  void TestConstantValue(Pixel value) {
+    FillConstant(value);
+    CheckAverages();
+  }
+
+  void TestRandom(int iterations = 1000) {
+    for (int i = 0; i < iterations; i++) {
+      FillRandom();
+      CheckAverages();
+    }
+  }
+
+  void PrintTimingStats() const {
+    printf(
+        "block_size = %d \t ref_time = %d \t simd_time = %d \t Gain = %4.2f\n",
+        GET_PARAM(4), static_cast<int>(ref_elapsed_time_),
+        static_cast<int>(opt_elapsed_time_),
+        (static_cast<float>(ref_elapsed_time_) /
+         static_cast<float>(opt_elapsed_time_)));
+  }
+
+  int64_t ref_elapsed_time_ = 0;
+  int64_t opt_elapsed_time_ = 0;
 };
 
-TEST_P(AverageTest, MinValue) {
-  FillConstant(0);
-  CheckAverages();
-}
+typedef void (*AverageFunction_8x8_quad)(const uint8_t *s, int pitch, int x_idx,
+                                         int y_idx, int *avg);
 
-TEST_P(AverageTest, MaxValue) {
-  FillConstant(255);
-  CheckAverages();
-}
+// Arguments: width, height, bit_depth, buffer start offset, block size, avg
+// function.
+typedef std::tuple<int, int, int, int, int, AverageFunction_8x8_quad>
+    AvgFunc_8x8_quad;
 
-TEST_P(AverageTest, Random) {
-  // The reference frame, but not the source frame, may be unaligned for
-  // certain types of searches.
-  for (int i = 0; i < 1000; i++) {
+template <typename Pixel>
+class AverageTest_8x8_quad
+    : public AverageTestBase<Pixel>,
+      public ::testing::WithParamInterface<AvgFunc_8x8_quad> {
+ public:
+  AverageTest_8x8_quad()
+      : AverageTestBase<Pixel>(GET_PARAM(0), GET_PARAM(1), GET_PARAM(2)) {}
+
+ protected:
+  using AverageTestBase<Pixel>::source_data_;
+  using AverageTestBase<Pixel>::source_stride_;
+  using AverageTestBase<Pixel>::ReferenceAverage8x8_quad;
+  using AverageTestBase<Pixel>::FillConstant;
+  using AverageTestBase<Pixel>::FillRandom;
+
+  void CheckAveragesAt(int iterations, int x16_idx, int y16_idx) {
+    ASSERT_EQ(sizeof(Pixel), 1u);
+    const int block_size = GET_PARAM(4);
+    (void)block_size;
+    int expected[4] = { 0 };
+
+    // The reference frame, but not the source frame, may be unaligned for
+    // certain types of searches.
+    const Pixel *const src = source_data_ + GET_PARAM(3);
+    ReferenceAverage8x8_quad(src, source_stride_, x16_idx, y16_idx, expected);
+
+    aom_usec_timer timer;
+    int expected_c[4] = { 0 };
+    int actual[4] = { 0 };
+    AverageFunction_8x8_quad avg_c = aom_avg_8x8_quad_c;
+    aom_usec_timer_start(&timer);
+    for (int i = 0; i < iterations; i++) {
+      avg_c(reinterpret_cast<const uint8_t *>(src), source_stride_, x16_idx,
+            y16_idx, expected_c);
+    }
+    aom_usec_timer_mark(&timer);
+    ref_elapsed_time_ += aom_usec_timer_elapsed(&timer);
+
+    AverageFunction_8x8_quad avg_opt = GET_PARAM(5);
+    aom_usec_timer_start(&timer);
+    for (int i = 0; i < iterations; i++) {
+      avg_opt(reinterpret_cast<const uint8_t *>(src), source_stride_, x16_idx,
+              y16_idx, actual);
+    }
+    aom_usec_timer_mark(&timer);
+    opt_elapsed_time_ += aom_usec_timer_elapsed(&timer);
+
+    for (int k = 0; k < 4; k++) {
+      EXPECT_EQ(expected[k], actual[k]);
+      EXPECT_EQ(expected_c[k], actual[k]);
+    }
+
+    // Print scaling information only when Speed test is called.
+    if (iterations > 1) {
+      printf("ref_time = %d \t simd_time = %d \t Gain = %4.2f\n",
+             static_cast<int>(ref_elapsed_time_),
+             static_cast<int>(opt_elapsed_time_),
+             (static_cast<float>(ref_elapsed_time_) /
+              static_cast<float>(opt_elapsed_time_)));
+    }
+  }
+
+  void CheckAverages() {
+    for (int x16_idx = 0; x16_idx < this->kDataBlockWidth / 8; x16_idx += 2)
+      for (int y16_idx = 0; y16_idx < this->kDataBlockHeight / 8; y16_idx += 2)
+        CheckAveragesAt(1, x16_idx, y16_idx);
+  }
+
+  void TestConstantValue(Pixel value) {
+    FillConstant(value);
+    CheckAverages();
+  }
+
+  void TestRandom() {
     FillRandom();
     CheckAverages();
   }
+
+  void TestSpeed() {
+    FillRandom();
+    CheckAveragesAt(1000000, 0, 0);
+  }
+
+  int64_t ref_elapsed_time_ = 0;
+  int64_t opt_elapsed_time_ = 0;
+};
+
+using AverageTest8bpp = AverageTest<uint8_t>;
+
+TEST_P(AverageTest8bpp, MinValue) { TestConstantValue(0); }
+
+TEST_P(AverageTest8bpp, MaxValue) { TestConstantValue(255); }
+
+TEST_P(AverageTest8bpp, Random) { TestRandom(); }
+
+TEST_P(AverageTest8bpp, DISABLED_Speed) {
+  TestRandom(1000000);
+  PrintTimingStats();
 }
 
-typedef void (*IntProRowFunc)(int16_t hbuf[16], uint8_t const *ref,
-                              const int ref_stride, const int height);
+using AvgTest8bpp_avg_8x8_quad = AverageTest_8x8_quad<uint8_t>;
 
-// Params: height, asm function, c function.
-typedef std::tuple<int, IntProRowFunc, IntProRowFunc> IntProRowParam;
+TEST_P(AvgTest8bpp_avg_8x8_quad, MinValue) { TestConstantValue(0); }
+
+TEST_P(AvgTest8bpp_avg_8x8_quad, MaxValue) { TestConstantValue(255); }
+
+TEST_P(AvgTest8bpp_avg_8x8_quad, Random) { TestRandom(); }
+
+TEST_P(AvgTest8bpp_avg_8x8_quad, DISABLED_Speed) { TestSpeed(); }
+
+#if CONFIG_AV1_HIGHBITDEPTH
+using AverageTestHbd = AverageTest<uint16_t>;
+
+TEST_P(AverageTestHbd, MinValue) { TestConstantValue(0); }
+
+TEST_P(AverageTestHbd, MaxValue10bit) { TestConstantValue(1023); }
+TEST_P(AverageTestHbd, MaxValue12bit) { TestConstantValue(4095); }
+
+TEST_P(AverageTestHbd, Random) { TestRandom(); }
+
+TEST_P(AverageTestHbd, DISABLED_Speed) {
+  TestRandom(1000000);
+  PrintTimingStats();
+}
+#endif  // CONFIG_AV1_HIGHBITDEPTH
+
+typedef void (*IntProRowFunc)(int16_t *hbuf, uint8_t const *ref,
+                              const int ref_stride, const int width,
+                              const int height, int norm_factor);
+
+// Params: width, height, asm function, c function.
+typedef std::tuple<int, int, IntProRowFunc, IntProRowFunc> IntProRowParam;
 
 class IntProRowTest : public AverageTestBase<uint8_t>,
                       public ::testing::WithParamInterface<IntProRowParam> {
  public:
   IntProRowTest()
-      : AverageTestBase(16, GET_PARAM(0)), hbuf_asm_(NULL), hbuf_c_(NULL) {
-    asm_func_ = GET_PARAM(1);
-    c_func_ = GET_PARAM(2);
+      : AverageTestBase(GET_PARAM(0), GET_PARAM(1)), hbuf_asm_(nullptr),
+        hbuf_c_(nullptr) {
+    asm_func_ = GET_PARAM(2);
+    c_func_ = GET_PARAM(3);
+  }
+
+  void set_norm_factor() {
+    if (height_ == 128)
+      norm_factor_ = 6;
+    else if (height_ == 64)
+      norm_factor_ = 5;
+    else if (height_ == 32)
+      norm_factor_ = 4;
+    else if (height_ == 16)
+      norm_factor_ = 3;
   }
 
  protected:
   virtual void SetUp() {
     source_data_ = static_cast<uint8_t *>(
         aom_memalign(kDataAlignment, kDataBlockSize * sizeof(source_data_[0])));
-    ASSERT_TRUE(source_data_ != NULL);
+    ASSERT_NE(source_data_, nullptr);
 
     hbuf_asm_ = static_cast<int16_t *>(
-        aom_memalign(kDataAlignment, sizeof(*hbuf_asm_) * 16));
+        aom_memalign(kDataAlignment, sizeof(*hbuf_asm_) * width_));
+    ASSERT_NE(hbuf_asm_, nullptr);
     hbuf_c_ = static_cast<int16_t *>(
-        aom_memalign(kDataAlignment, sizeof(*hbuf_c_) * 16));
+        aom_memalign(kDataAlignment, sizeof(*hbuf_c_) * width_));
+    ASSERT_NE(hbuf_c_, nullptr);
   }
 
   virtual void TearDown() {
     aom_free(source_data_);
-    source_data_ = NULL;
+    source_data_ = nullptr;
     aom_free(hbuf_c_);
-    hbuf_c_ = NULL;
+    hbuf_c_ = nullptr;
     aom_free(hbuf_asm_);
-    hbuf_asm_ = NULL;
+    hbuf_asm_ = nullptr;
   }
 
   void RunComparison() {
-    API_REGISTER_STATE_CHECK(c_func_(hbuf_c_, source_data_, 0, height_));
-    API_REGISTER_STATE_CHECK(asm_func_(hbuf_asm_, source_data_, 0, height_));
-    EXPECT_EQ(0, memcmp(hbuf_c_, hbuf_asm_, sizeof(*hbuf_c_) * 16))
+    set_norm_factor();
+    API_REGISTER_STATE_CHECK(
+        c_func_(hbuf_c_, source_data_, width_, width_, height_, norm_factor_));
+    API_REGISTER_STATE_CHECK(asm_func_(hbuf_asm_, source_data_, width_, width_,
+                                       height_, norm_factor_));
+    EXPECT_EQ(0, memcmp(hbuf_c_, hbuf_asm_, sizeof(*hbuf_c_) * width_))
         << "Output mismatch\n";
   }
 
   void RunSpeedTest() {
     const int numIter = 5000000;
-    printf("Height = %d number of iteration is %d \n", height_, numIter);
+    set_norm_factor();
+    printf("Blk_Size=%dx%d: number of iteration is %d \n", width_, height_,
+           numIter);
     aom_usec_timer c_timer_;
     aom_usec_timer_start(&c_timer_);
     for (int i = 0; i < numIter; i++) {
-      c_func_(hbuf_c_, source_data_, 0, height_);
+      c_func_(hbuf_c_, source_data_, width_, width_, height_, norm_factor_);
     }
     aom_usec_timer_mark(&c_timer_);
 
@@ -192,7 +426,7 @@ class IntProRowTest : public AverageTestBase<uint8_t>,
     aom_usec_timer_start(&asm_timer_);
 
     for (int i = 0; i < numIter; i++) {
-      asm_func_(hbuf_asm_, source_data_, 0, height_);
+      asm_func_(hbuf_asm_, source_data_, width_, width_, height_, norm_factor_);
     }
     aom_usec_timer_mark(&asm_timer_);
 
@@ -204,7 +438,7 @@ class IntProRowTest : public AverageTestBase<uint8_t>,
            asm_sum_time,
            (static_cast<float>(c_sum_time) / static_cast<float>(asm_sum_time)));
 
-    EXPECT_EQ(0, memcmp(hbuf_c_, hbuf_asm_, sizeof(*hbuf_c_) * 16))
+    EXPECT_EQ(0, memcmp(hbuf_c_, hbuf_asm_, sizeof(*hbuf_c_) * width_))
         << "Output mismatch\n";
   }
 
@@ -213,35 +447,68 @@ class IntProRowTest : public AverageTestBase<uint8_t>,
   IntProRowFunc c_func_;
   int16_t *hbuf_asm_;
   int16_t *hbuf_c_;
+  int norm_factor_;
 };
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(IntProRowTest);
 
-typedef int16_t (*IntProColFunc)(uint8_t const *ref, const int width);
+typedef void (*IntProColFunc)(int16_t *vbuf, uint8_t const *ref,
+                              const int ref_stride, const int width,
+                              const int height, int norm_factor);
 
-// Params: width, asm function, c function.
-typedef std::tuple<int, IntProColFunc, IntProColFunc> IntProColParam;
+// Params: width, height, asm function, c function.
+typedef std::tuple<int, int, IntProColFunc, IntProColFunc> IntProColParam;
 
 class IntProColTest : public AverageTestBase<uint8_t>,
                       public ::testing::WithParamInterface<IntProColParam> {
  public:
-  IntProColTest() : AverageTestBase(GET_PARAM(0), 1), sum_asm_(0), sum_c_(0) {
-    asm_func_ = GET_PARAM(1);
-    c_func_ = GET_PARAM(2);
+  IntProColTest()
+      : AverageTestBase(GET_PARAM(0), GET_PARAM(1)), vbuf_asm_(nullptr),
+        vbuf_c_(nullptr) {
+    asm_func_ = GET_PARAM(2);
+    c_func_ = GET_PARAM(3);
   }
 
  protected:
+  virtual void SetUp() {
+    source_data_ = static_cast<uint8_t *>(
+        aom_memalign(kDataAlignment, kDataBlockSize * sizeof(source_data_[0])));
+    ASSERT_NE(source_data_, nullptr);
+
+    vbuf_asm_ = static_cast<int16_t *>(
+        aom_memalign(kDataAlignment, sizeof(*vbuf_asm_) * width_));
+    ASSERT_NE(vbuf_asm_, nullptr);
+    vbuf_c_ = static_cast<int16_t *>(
+        aom_memalign(kDataAlignment, sizeof(*vbuf_c_) * width_));
+    ASSERT_NE(vbuf_c_, nullptr);
+  }
+
+  virtual void TearDown() {
+    aom_free(source_data_);
+    source_data_ = nullptr;
+    aom_free(vbuf_c_);
+    vbuf_c_ = nullptr;
+    aom_free(vbuf_asm_);
+    vbuf_asm_ = nullptr;
+  }
+
   void RunComparison() {
-    API_REGISTER_STATE_CHECK(sum_c_ = c_func_(source_data_, width_));
-    API_REGISTER_STATE_CHECK(sum_asm_ = asm_func_(source_data_, width_));
-    EXPECT_EQ(sum_c_, sum_asm_) << "Output mismatch";
+    int norm_factor_ = 3 + (width_ >> 5);
+    API_REGISTER_STATE_CHECK(
+        c_func_(vbuf_c_, source_data_, width_, width_, height_, norm_factor_));
+    API_REGISTER_STATE_CHECK(asm_func_(vbuf_asm_, source_data_, width_, width_,
+                                       height_, norm_factor_));
+    EXPECT_EQ(0, memcmp(vbuf_c_, vbuf_asm_, sizeof(*vbuf_c_) * height_))
+        << "Output mismatch\n";
   }
   void RunSpeedTest() {
     const int numIter = 5000000;
-    printf("Width = %d number of iteration is %d \n", width_, numIter);
+    printf("Blk_Size=%dx%d: number of iteration is %d \n", width_, height_,
+           numIter);
+    int norm_factor_ = 3 + (width_ >> 5);
     aom_usec_timer c_timer_;
     aom_usec_timer_start(&c_timer_);
     for (int i = 0; i < numIter; i++) {
-      sum_c_ = c_func_(source_data_, width_);
+      c_func_(vbuf_c_, source_data_, width_, width_, height_, norm_factor_);
     }
     aom_usec_timer_mark(&c_timer_);
 
@@ -249,7 +516,7 @@ class IntProColTest : public AverageTestBase<uint8_t>,
     aom_usec_timer_start(&asm_timer_);
 
     for (int i = 0; i < numIter; i++) {
-      sum_asm_ = asm_func_(source_data_, width_);
+      asm_func_(vbuf_asm_, source_data_, width_, width_, height_, norm_factor_);
     }
     aom_usec_timer_mark(&asm_timer_);
 
@@ -261,14 +528,15 @@ class IntProColTest : public AverageTestBase<uint8_t>,
            asm_sum_time,
            (static_cast<float>(c_sum_time) / static_cast<float>(asm_sum_time)));
 
-    EXPECT_EQ(sum_c_, sum_asm_) << "Output mismatch \n";
+    EXPECT_EQ(0, memcmp(vbuf_c_, vbuf_asm_, sizeof(*vbuf_c_) * height_))
+        << "Output mismatch\n";
   }
 
  private:
   IntProColFunc asm_func_;
   IntProColFunc c_func_;
-  int16_t sum_asm_;
-  int16_t sum_c_;
+  int16_t *vbuf_asm_;
+  int16_t *vbuf_c_;
 };
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(IntProColTest);
 
@@ -325,18 +593,18 @@ class VectorVarTestBase : public ::testing::Test {
 
     ref_vector = static_cast<int16_t *>(
         aom_memalign(kDataAlignment, width * sizeof(ref_vector[0])));
-    ASSERT_TRUE(ref_vector != NULL);
+    ASSERT_NE(ref_vector, nullptr);
     src_vector = static_cast<int16_t *>(
         aom_memalign(kDataAlignment, width * sizeof(src_vector[0])));
-    ASSERT_TRUE(src_vector != NULL);
+    ASSERT_NE(src_vector, nullptr);
 
     rnd_.Reset(ACMRandom::DeterministicSeed());
   }
   virtual void TearDown() {
     aom_free(ref_vector);
-    ref_vector = NULL;
+    ref_vector = nullptr;
     aom_free(src_vector);
-    src_vector = NULL;
+    src_vector = nullptr;
   }
 
   void FillConstant(int16_t fill_constant_ref, int16_t fill_constant_src) {
@@ -425,7 +693,7 @@ TEST_P(VectorVarTest, Random) {
 }
 TEST_P(VectorVarTest, DISABLED_Speed) {
   FillRandom();
-  const int numIter = 50000;
+  const int numIter = 5000000;
   printf("Width = %d number of iteration is %d \n", width, numIter);
 
   int sum_c_var = 0;
@@ -464,62 +732,124 @@ TEST_P(VectorVarTest, DISABLED_Speed) {
 using std::make_tuple;
 
 INSTANTIATE_TEST_SUITE_P(
-    C, AverageTest,
-    ::testing::Values(make_tuple(16, 16, 1, 8, &aom_avg_8x8_c),
-                      make_tuple(16, 16, 1, 4, &aom_avg_4x4_c)));
+    C, AverageTest8bpp,
+    ::testing::Values(make_tuple(16, 16, 8, 1, 8, &aom_avg_8x8_c),
+                      make_tuple(16, 16, 8, 1, 4, &aom_avg_4x4_c)));
+
+INSTANTIATE_TEST_SUITE_P(
+    C, AvgTest8bpp_avg_8x8_quad,
+    ::testing::Values(make_tuple(16, 16, 8, 0, 16, &aom_avg_8x8_quad_c),
+                      make_tuple(32, 32, 8, 16, 16, &aom_avg_8x8_quad_c),
+                      make_tuple(32, 32, 8, 8, 16, &aom_avg_8x8_quad_c)));
 
 #if HAVE_SSE2
 INSTANTIATE_TEST_SUITE_P(
-    SSE2, AverageTest,
-    ::testing::Values(make_tuple(16, 16, 0, 8, &aom_avg_8x8_sse2),
-                      make_tuple(16, 16, 5, 8, &aom_avg_8x8_sse2),
-                      make_tuple(32, 32, 15, 8, &aom_avg_8x8_sse2),
-                      make_tuple(16, 16, 0, 4, &aom_avg_4x4_sse2),
-                      make_tuple(16, 16, 5, 4, &aom_avg_4x4_sse2),
-                      make_tuple(32, 32, 15, 4, &aom_avg_4x4_sse2)));
+    SSE2, AverageTest8bpp,
+    ::testing::Values(make_tuple(16, 16, 8, 0, 8, &aom_avg_8x8_sse2),
+                      make_tuple(16, 16, 8, 5, 8, &aom_avg_8x8_sse2),
+                      make_tuple(32, 32, 8, 15, 8, &aom_avg_8x8_sse2),
+                      make_tuple(16, 16, 8, 0, 4, &aom_avg_4x4_sse2),
+                      make_tuple(16, 16, 8, 5, 4, &aom_avg_4x4_sse2),
+                      make_tuple(32, 32, 8, 15, 4, &aom_avg_4x4_sse2)));
+
+INSTANTIATE_TEST_SUITE_P(
+    SSE2, AvgTest8bpp_avg_8x8_quad,
+    ::testing::Values(make_tuple(16, 16, 8, 0, 16, &aom_avg_8x8_quad_sse2),
+                      make_tuple(32, 32, 8, 16, 16, &aom_avg_8x8_quad_sse2),
+                      make_tuple(32, 32, 8, 8, 16, &aom_avg_8x8_quad_sse2)));
 
 INSTANTIATE_TEST_SUITE_P(
     SSE2, IntProRowTest,
-    ::testing::Values(make_tuple(16, &aom_int_pro_row_sse2, &aom_int_pro_row_c),
-                      make_tuple(32, &aom_int_pro_row_sse2, &aom_int_pro_row_c),
-                      make_tuple(64, &aom_int_pro_row_sse2, &aom_int_pro_row_c),
-                      make_tuple(128, &aom_int_pro_row_sse2,
-                                 &aom_int_pro_row_c)));
+    ::testing::Values(
+        make_tuple(16, 16, &aom_int_pro_row_sse2, &aom_int_pro_row_c),
+        make_tuple(32, 32, &aom_int_pro_row_sse2, &aom_int_pro_row_c),
+        make_tuple(64, 64, &aom_int_pro_row_sse2, &aom_int_pro_row_c),
+        make_tuple(128, 128, &aom_int_pro_row_sse2, &aom_int_pro_row_c)));
 
 INSTANTIATE_TEST_SUITE_P(
     SSE2, IntProColTest,
-    ::testing::Values(make_tuple(16, &aom_int_pro_col_sse2, &aom_int_pro_col_c),
-                      make_tuple(32, &aom_int_pro_col_sse2, &aom_int_pro_col_c),
-                      make_tuple(64, &aom_int_pro_col_sse2, &aom_int_pro_col_c),
-                      make_tuple(128, &aom_int_pro_col_sse2,
-                                 &aom_int_pro_col_c)));
+    ::testing::Values(
+        make_tuple(16, 16, &aom_int_pro_col_sse2, &aom_int_pro_col_c),
+        make_tuple(32, 32, &aom_int_pro_col_sse2, &aom_int_pro_col_c),
+        make_tuple(64, 64, &aom_int_pro_col_sse2, &aom_int_pro_col_c),
+        make_tuple(128, 128, &aom_int_pro_col_sse2, &aom_int_pro_col_c)));
+#endif
+
+#if HAVE_AVX2
+INSTANTIATE_TEST_SUITE_P(
+    AVX2, AvgTest8bpp_avg_8x8_quad,
+    ::testing::Values(make_tuple(16, 16, 8, 0, 16, &aom_avg_8x8_quad_avx2),
+                      make_tuple(32, 32, 8, 16, 16, &aom_avg_8x8_quad_avx2),
+                      make_tuple(32, 32, 8, 8, 16, &aom_avg_8x8_quad_avx2)));
+
+INSTANTIATE_TEST_SUITE_P(
+    AVX2, IntProRowTest,
+    ::testing::Values(
+        make_tuple(16, 16, &aom_int_pro_row_avx2, &aom_int_pro_row_c),
+        make_tuple(32, 32, &aom_int_pro_row_avx2, &aom_int_pro_row_c),
+        make_tuple(64, 64, &aom_int_pro_row_avx2, &aom_int_pro_row_c),
+        make_tuple(128, 128, &aom_int_pro_row_avx2, &aom_int_pro_row_c)));
+
+INSTANTIATE_TEST_SUITE_P(
+    AVX2, IntProColTest,
+    ::testing::Values(
+        make_tuple(16, 16, &aom_int_pro_col_avx2, &aom_int_pro_col_c),
+        make_tuple(32, 32, &aom_int_pro_col_avx2, &aom_int_pro_col_c),
+        make_tuple(64, 64, &aom_int_pro_col_avx2, &aom_int_pro_col_c),
+        make_tuple(128, 128, &aom_int_pro_col_avx2, &aom_int_pro_col_c)));
 #endif
 
 #if HAVE_NEON
 INSTANTIATE_TEST_SUITE_P(
-    NEON, AverageTest,
-    ::testing::Values(make_tuple(16, 16, 0, 8, &aom_avg_8x8_neon),
-                      make_tuple(16, 16, 5, 8, &aom_avg_8x8_neon),
-                      make_tuple(32, 32, 15, 8, &aom_avg_8x8_neon),
-                      make_tuple(16, 16, 0, 4, &aom_avg_4x4_neon),
-                      make_tuple(16, 16, 5, 4, &aom_avg_4x4_neon),
-                      make_tuple(32, 32, 15, 4, &aom_avg_4x4_neon)));
+    NEON, AverageTest8bpp,
+    ::testing::Values(make_tuple(16, 16, 8, 0, 8, &aom_avg_8x8_neon),
+                      make_tuple(16, 16, 8, 5, 8, &aom_avg_8x8_neon),
+                      make_tuple(32, 32, 8, 15, 8, &aom_avg_8x8_neon),
+                      make_tuple(16, 16, 8, 0, 4, &aom_avg_4x4_neon),
+                      make_tuple(16, 16, 8, 5, 4, &aom_avg_4x4_neon),
+                      make_tuple(32, 32, 8, 15, 4, &aom_avg_4x4_neon)));
 INSTANTIATE_TEST_SUITE_P(
     NEON, IntProRowTest,
-    ::testing::Values(make_tuple(16, &aom_int_pro_row_neon, &aom_int_pro_row_c),
-                      make_tuple(32, &aom_int_pro_row_neon, &aom_int_pro_row_c),
-                      make_tuple(64, &aom_int_pro_row_neon, &aom_int_pro_row_c),
-                      make_tuple(128, &aom_int_pro_row_neon,
-                                 &aom_int_pro_row_c)));
+    ::testing::Values(
+        make_tuple(16, 16, &aom_int_pro_row_neon, &aom_int_pro_row_c),
+        make_tuple(32, 32, &aom_int_pro_row_neon, &aom_int_pro_row_c),
+        make_tuple(64, 64, &aom_int_pro_row_neon, &aom_int_pro_row_c),
+        make_tuple(128, 128, &aom_int_pro_row_neon, &aom_int_pro_row_c)));
 
 INSTANTIATE_TEST_SUITE_P(
     NEON, IntProColTest,
-    ::testing::Values(make_tuple(16, &aom_int_pro_col_neon, &aom_int_pro_col_c),
-                      make_tuple(32, &aom_int_pro_col_neon, &aom_int_pro_col_c),
-                      make_tuple(64, &aom_int_pro_col_neon, &aom_int_pro_col_c),
-                      make_tuple(128, &aom_int_pro_col_neon,
-                                 &aom_int_pro_col_c)));
+    ::testing::Values(
+        make_tuple(16, 16, &aom_int_pro_col_neon, &aom_int_pro_col_c),
+        make_tuple(32, 32, &aom_int_pro_col_neon, &aom_int_pro_col_c),
+        make_tuple(64, 64, &aom_int_pro_col_neon, &aom_int_pro_col_c),
+        make_tuple(128, 128, &aom_int_pro_col_neon, &aom_int_pro_col_c)));
+
+INSTANTIATE_TEST_SUITE_P(
+    NEON, AvgTest8bpp_avg_8x8_quad,
+    ::testing::Values(make_tuple(16, 16, 8, 0, 16, &aom_avg_8x8_quad_neon),
+                      make_tuple(32, 32, 8, 16, 16, &aom_avg_8x8_quad_neon),
+                      make_tuple(32, 32, 8, 8, 16, &aom_avg_8x8_quad_neon)));
 #endif
+
+#if CONFIG_AV1_HIGHBITDEPTH
+INSTANTIATE_TEST_SUITE_P(
+    C, AverageTestHbd,
+    ::testing::Values(make_tuple(16, 16, 10, 1, 8, &aom_highbd_avg_8x8_c),
+                      make_tuple(16, 16, 10, 1, 4, &aom_highbd_avg_4x4_c),
+                      make_tuple(16, 16, 12, 1, 8, &aom_highbd_avg_8x8_c),
+                      make_tuple(16, 16, 12, 1, 4, &aom_highbd_avg_4x4_c)));
+
+#if HAVE_NEON
+INSTANTIATE_TEST_SUITE_P(
+    NEON, AverageTestHbd,
+    ::testing::Values(make_tuple(16, 16, 10, 0, 4, &aom_highbd_avg_4x4_neon),
+                      make_tuple(16, 16, 10, 5, 4, &aom_highbd_avg_4x4_neon),
+                      make_tuple(32, 32, 10, 15, 4, &aom_highbd_avg_4x4_neon),
+                      make_tuple(16, 16, 12, 0, 4, &aom_highbd_avg_4x4_neon),
+                      make_tuple(16, 16, 12, 5, 4, &aom_highbd_avg_4x4_neon),
+                      make_tuple(32, 32, 12, 15, 4, &aom_highbd_avg_4x4_neon)));
+#endif  // HAVE_NEON
+#endif  // CONFIG_AV1_HIGHBITDEPTH
 
 typedef int (*SatdFunc)(const tran_low_t *coeffs, int length);
 typedef int (*SatdLpFunc)(const int16_t *coeffs, int length);
@@ -551,7 +881,7 @@ class SatdTestBase
     rnd_.Reset(ACMRandom::DeterministicSeed());
     src_ = reinterpret_cast<CoeffType *>(
         aom_memalign(32, sizeof(*src_) * satd_size_));
-    ASSERT_TRUE(src_ != NULL);
+    ASSERT_NE(src_, nullptr);
   }
   virtual void TearDown() { aom_free(src_); }
   void FillConstant(const CoeffType val) {
@@ -685,6 +1015,16 @@ INSTANTIATE_TEST_SUITE_P(
                       make_tuple(5, &aom_vector_var_c, &aom_vector_var_neon)));
 #endif
 
+#if HAVE_SSE4_1
+INSTANTIATE_TEST_SUITE_P(
+    SSE4_1, VectorVarTest,
+    ::testing::Values(make_tuple(2, &aom_vector_var_c, &aom_vector_var_sse4_1),
+                      make_tuple(3, &aom_vector_var_c, &aom_vector_var_sse4_1),
+                      make_tuple(4, &aom_vector_var_c, &aom_vector_var_sse4_1),
+                      make_tuple(5, &aom_vector_var_c,
+                                 &aom_vector_var_sse4_1)));
+#endif  // HAVE_SSE4_1
+
 #if HAVE_AVX2
 INSTANTIATE_TEST_SUITE_P(
     AVX2, SatdTest,
@@ -693,7 +1033,14 @@ INSTANTIATE_TEST_SUITE_P(
                       SatdTestParam<SatdFunc>(256, &aom_satd_c, &aom_satd_avx2),
                       SatdTestParam<SatdFunc>(1024, &aom_satd_c,
                                               &aom_satd_avx2)));
-#endif
+
+INSTANTIATE_TEST_SUITE_P(
+    AVX2, VectorVarTest,
+    ::testing::Values(make_tuple(2, &aom_vector_var_c, &aom_vector_var_avx2),
+                      make_tuple(3, &aom_vector_var_c, &aom_vector_var_avx2),
+                      make_tuple(4, &aom_vector_var_c, &aom_vector_var_avx2),
+                      make_tuple(5, &aom_vector_var_c, &aom_vector_var_avx2)));
+#endif  // HAVE_AVX2
 
 #if HAVE_SSE2
 INSTANTIATE_TEST_SUITE_P(

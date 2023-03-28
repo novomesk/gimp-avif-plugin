@@ -70,6 +70,35 @@ int_mv av1_simple_motion_sse_var(struct AV1_COMP *cpi, MACROBLOCK *x,
                                  const FULLPEL_MV start_mv, int use_subpixel,
                                  unsigned int *sse, unsigned int *var);
 
+static AOM_INLINE const search_site_config *av1_get_search_site_config(
+    const AV1_COMP *cpi, MACROBLOCK *x, SEARCH_METHODS search_method) {
+  const int ref_stride = x->e_mbd.plane[0].pre[0].stride;
+
+  // AV1_COMP::mv_search_params.search_site_config is a compressor level cache
+  // that's shared by multiple threads. In most cases where all frames have the
+  // same resolution, the cache contains the search site config that we need.
+  const MotionVectorSearchParams *mv_search_params = &cpi->mv_search_params;
+  if (ref_stride == mv_search_params->search_site_cfg[SS_CFG_SRC]->stride) {
+    return mv_search_params->search_site_cfg[SS_CFG_SRC];
+  } else if (ref_stride ==
+             mv_search_params->search_site_cfg[SS_CFG_LOOKAHEAD]->stride) {
+    return mv_search_params->search_site_cfg[SS_CFG_LOOKAHEAD];
+  }
+
+  // If the cache does not contain the correct stride, then we will need to rely
+  // on the thread level config MACROBLOCK::search_site_cfg_buf. If even the
+  // thread level config doesn't match, then we need to update it.
+  search_method = search_method_lookup[search_method];
+  assert(search_method_lookup[search_method] == search_method &&
+         "The search_method_lookup table should be idempotent.");
+  if (ref_stride != x->search_site_cfg_buf[search_method].stride) {
+    av1_refresh_search_site_config(x->search_site_cfg_buf, search_method,
+                                   ref_stride);
+  }
+
+  return x->search_site_cfg_buf;
+}
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

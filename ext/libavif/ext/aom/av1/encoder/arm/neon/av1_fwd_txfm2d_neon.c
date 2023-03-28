@@ -20,7 +20,7 @@
 #include "config/aom_config.h"
 #include "config/av1_rtcd.h"
 
-#define custom_packs_s32(w0, w1) vcombine_s16(vqmovn_s32(w0), vqmovn_s32(w1));
+#define custom_packs_s32(w0, w1) vcombine_s16(vqmovn_s32(w0), vqmovn_s32(w1))
 
 static INLINE void transpose_16bit_4x4(const int16x8_t *const in,
                                        int16x8_t *const out) {
@@ -274,23 +274,32 @@ static INLINE void store_rect_16bit_to_32bit(const int16x8_t a,
   vst1q_s32((b + 4), b_hi);
 }
 
-static INLINE void load_buffer_16bit_to_16bit_w4(const int16_t *const in,
+static INLINE void load_buffer_16bit_to_16bit_w4(const int16_t *in,
                                                  const int stride,
                                                  int16x8_t *const out,
                                                  const int out_size) {
-  for (int i = 0; i < out_size; ++i)
-    out[i] = vreinterpretq_s16_u64(vld1q_lane_u64(
-        (uint64_t *)(in + i * stride), vreinterpretq_u64_s16(out[i]), 0));
+  for (int i = 0; i < out_size; ++i) {
+    // vld1q_dup_u64 is used rather than vld1q_lane_u64(lane=0) to avoid
+    // -Wmaybe-uninitialized warnings with some versions of gcc. This assumes
+    // the upper lane is unused or further modified after this call. The
+    // latency should be similar between the two.
+    out[i] = vreinterpretq_s16_u64(vld1q_dup_u64((uint64_t *)in));
+    in += stride;
+  }
 }
 
-static INLINE void load_buffer_16bit_to_16bit_w4_flip(const int16_t *const in,
+static INLINE void load_buffer_16bit_to_16bit_w4_flip(const int16_t *in,
                                                       const int stride,
                                                       int16x8_t *const out,
                                                       const int out_size) {
-  for (int i = 0; i < out_size; ++i)
-    out[out_size - i - 1] = vreinterpretq_s16_u64(
-        vld1q_lane_u64((uint64_t *)(in + i * stride),
-                       vreinterpretq_u64_s16(out[out_size - i - 1]), 0));
+  for (int i = out_size - 1; i >= 0; --i) {
+    // vld1q_dup_u64 is used rather than vld1q_lane_u64(lane=0) to avoid
+    // -Wmaybe-uninitialized warnings with some versions of gcc. This assumes
+    // the upper lane is unused or further modified after this call. The
+    // latency should be similar between the two.
+    out[i] = vreinterpretq_s16_u64(vld1q_dup_u64((uint64_t *)in));
+    in += stride;
+  }
 }
 
 static INLINE void load_buffer_16bit_to_16bit(const int16_t *in, int stride,
@@ -404,7 +413,7 @@ void av1_fadst4x4_neon(const int16x8_t *input, int16x8_t *output,
 
 #define btf_16_w4_neon(w0_l, w0_h, w1_l, w1_h, in0, in1, out0, out1, \
                        v_cos_bit)                                    \
-  {                                                                  \
+  do {                                                               \
     int32x4_t in0_l = vmovl_s16(vget_low_s16(in0));                  \
     int32x4_t in1_l = vmovl_s16(vget_low_s16(in1));                  \
     int32x4_t u0 = vmulq_n_s32(in0_l, w0_l);                         \
@@ -417,10 +426,10 @@ void av1_fadst4x4_neon(const int16x8_t *input, int16x8_t *output,
     const int16x4_t d1 = vqmovn_s32(d0);                             \
     out0 = vcombine_s16(c1, c1);                                     \
     out1 = vcombine_s16(d1, c1);                                     \
-  }
+  } while (0)
 
 #define btf_16_w4_neon_mode0(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                       \
+  do {                                                                    \
     int32x4_t in0_l = vmovl_s16(vget_low_s16(in0));                       \
     int32x4_t in1_l = vmovl_s16(vget_low_s16(in1));                       \
     int32x4_t u0 = vmulq_n_s32(in1_l, w0_h);                              \
@@ -433,10 +442,10 @@ void av1_fadst4x4_neon(const int16x8_t *input, int16x8_t *output,
     const int16x4_t d1 = vqmovn_s32(d0);                                  \
     out0 = vcombine_s16(c1, c1);                                          \
     out1 = vcombine_s16(d1, c1);                                          \
-  }
+  } while (0)
 
 #define btf_16_w4_neon_mode2(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                       \
+  do {                                                                    \
     int32x4_t in0_l = vmovl_s16(vget_low_s16(in0));                       \
     int32x4_t in1_l = vmovl_s16(vget_low_s16(in1));                       \
     int32x4_t u0 = vmulq_n_s32(in0_l, w0_l);                              \
@@ -449,10 +458,10 @@ void av1_fadst4x4_neon(const int16x8_t *input, int16x8_t *output,
     const int16x4_t d1 = vqmovn_s32(d0);                                  \
     out0 = vcombine_s16(c1, c1);                                          \
     out1 = vcombine_s16(d1, c1);                                          \
-  }
+  } while (0)
 
 #define btf_16_w4_neon_mode3(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                       \
+  do {                                                                    \
     int32x4_t in0_l = vmovl_s16(vget_low_s16(in0));                       \
     int32x4_t in1_l = vmovl_s16(vget_low_s16(in1));                       \
     int32x4_t u0 = vmulq_n_s32(in0_l, w0_l);                              \
@@ -465,7 +474,7 @@ void av1_fadst4x4_neon(const int16x8_t *input, int16x8_t *output,
     const int16x4_t d1 = vqmovn_s32(d0);                                  \
     out0 = vcombine_s16(c1, c1);                                          \
     out1 = vcombine_s16(d1, c1);                                          \
-  }
+  } while (0)
 
 static void fadst4x8_neon(const int16x8_t *input, int16x8_t *output,
                           int8_t cos_bit, const int8_t *stage_range) {
@@ -629,7 +638,7 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
 }
 
 #define btf_16_neon(w0_l, w0_h, w1_l, w1_h, in0, in1, out0, out1) \
-  {                                                               \
+  do {                                                            \
     int32x4_t in_low0 = vmovl_s16(vget_low_s16(in0));             \
     int32x4_t in_high0 = vmovl_s16(vget_high_s16(in0));           \
     int32x4_t in_low1 = vmovl_s16(vget_low_s16(in1));             \
@@ -648,10 +657,10 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
     int32x4_t d1 = vrshlq_s32(v1, v_cos_bit);                     \
     out0 = custom_packs_s32(c0, c1);                              \
     out1 = custom_packs_s32(d0, d1);                              \
-  }
+  } while (0)
 
 #define btf_16_neon_mode0(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                    \
+  do {                                                                 \
     int32x4_t in_low0 = vmovl_s16(vget_low_s16(in0));                  \
     int32x4_t in_high0 = vmovl_s16(vget_high_s16(in0));                \
     int32x4_t in_low1 = vmovl_s16(vget_low_s16(in1));                  \
@@ -670,10 +679,10 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
     int32x4_t d1 = vrshlq_s32(v1, v_cos_bit);                          \
     out0 = custom_packs_s32(c0, c1);                                   \
     out1 = custom_packs_s32(d0, d1);                                   \
-  }
+  } while (0)
 
 #define btf_16_neon_mode1(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                    \
+  do {                                                                 \
     int32x4_t in_low0 = vmovl_s16(vget_low_s16(in0));                  \
     int32x4_t in_high0 = vmovl_s16(vget_high_s16(in0));                \
     int32x4_t in_low1 = vmovl_s16(vget_low_s16(in1));                  \
@@ -692,10 +701,10 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
     int32x4_t d1 = vrshlq_s32(v1, v_cos_bit);                          \
     out0 = custom_packs_s32(c0, c1);                                   \
     out1 = custom_packs_s32(d0, d1);                                   \
-  }
+  } while (0)
 
 #define btf_16_neon_mode02(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                     \
+  do {                                                                  \
     int32x4_t in_low0 = vmovl_s16(vget_low_s16(in0));                   \
     int32x4_t in_high0 = vmovl_s16(vget_high_s16(in0));                 \
     int32x4_t in_low1 = vmovl_s16(vget_low_s16(in1));                   \
@@ -714,10 +723,10 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
     int32x4_t d1 = vrshlq_s32(v1, v_cos_bit);                           \
     out0 = custom_packs_s32(c0, c1);                                    \
     out1 = custom_packs_s32(d0, d1);                                    \
-  }
+  } while (0)
 
 #define btf_16_neon_mode2(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                    \
+  do {                                                                 \
     int32x4_t in_low0 = vmovl_s16(vget_low_s16(in0));                  \
     int32x4_t in_high0 = vmovl_s16(vget_high_s16(in0));                \
     int32x4_t in_low1 = vmovl_s16(vget_low_s16(in1));                  \
@@ -736,10 +745,10 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
     int32x4_t d1 = vrshlq_s32(v1, v_cos_bit);                          \
     out0 = custom_packs_s32(c0, c1);                                   \
     out1 = custom_packs_s32(d0, d1);                                   \
-  }
+  } while (0)
 
 #define btf_16_neon_mode3(w0_l, w0_h, in0, in1, out0, out1, v_cos_bit) \
-  {                                                                    \
+  do {                                                                 \
     int32x4_t in_low0 = vmovl_s16(vget_low_s16(in0));                  \
     int32x4_t in_high0 = vmovl_s16(vget_high_s16(in0));                \
     int32x4_t in_low1 = vmovl_s16(vget_low_s16(in1));                  \
@@ -758,7 +767,7 @@ void av1_fdct4x4_neon(const int16x8_t *input, int16x8_t *output, int8_t cos_bit,
     int32x4_t d1 = vrshlq_s32(v1, v_cos_bit);                          \
     out0 = custom_packs_s32(c0, c1);                                   \
     out1 = custom_packs_s32(d0, d1);                                   \
-  }
+  } while (0)
 
 static void fdct8x4_neon(const int16x8_t *input, int16x8_t *output,
                          int8_t cos_bit, const int8_t *stage_range) {
@@ -2298,10 +2307,9 @@ void av1_lowbd_fwd_txfm2d_4x4_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip) {
     load_buffer_16bit_to_16bit_w4_flip(input, stride, buf0, height);
   } else {
@@ -2342,10 +2350,9 @@ void av1_lowbd_fwd_txfm2d_4x8_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip) {
     load_buffer_16bit_to_16bit_w4_flip(input, stride, buf0, height);
   } else {
@@ -2384,10 +2391,9 @@ void av1_lowbd_fwd_txfm2d_4x16_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip) {
     load_buffer_16bit_to_16bit_w4_flip(input, stride, buf0, height);
   } else {
@@ -2430,10 +2436,9 @@ void av1_lowbd_fwd_txfm2d_8x4_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip)
     load_buffer_16bit_to_16bit_flip(input, stride, buf0, height);
   else
@@ -2471,10 +2476,9 @@ void av1_lowbd_fwd_txfm2d_8x8_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip)
     load_buffer_16bit_to_16bit_flip(input, stride, buf0, height);
   else
@@ -2512,10 +2516,9 @@ void av1_lowbd_fwd_txfm2d_8x16_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip) {
     load_buffer_16bit_to_16bit_flip(input, stride, buf0, height);
   } else {
@@ -2558,10 +2561,9 @@ void av1_lowbd_fwd_txfm2d_8x32_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   if (ud_flip) {
     load_buffer_16bit_to_16bit_flip(input, stride, buf0, height);
   } else {
@@ -2607,10 +2609,9 @@ void av1_lowbd_fwd_txfm2d_16x4_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   for (int i = 0; i < 2; i++) {
     if (ud_flip) {
       load_buffer_16bit_to_16bit_flip(input + 8 * i, stride, buf0, height);
@@ -2654,10 +2655,9 @@ void av1_lowbd_fwd_txfm2d_16x8_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
   for (int i = 0; i < 2; i++) {
     if (ud_flip) {
       load_buffer_16bit_to_16bit_flip(input + 8 * i, stride, buf0, height);
@@ -2700,10 +2700,9 @@ void av1_lowbd_fwd_txfm2d_16x16_neon(const int16_t *input, int32_t *output,
   int ud_flip, lr_flip;
 
   get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-  const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-  const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-  const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-  const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+  const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+  const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+  const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
 
   for (int i = 0; i < 2; i++) {
     if (ud_flip) {
@@ -2753,10 +2752,9 @@ void av1_lowbd_fwd_txfm2d_16x32_neon(const int16_t *input, int32_t *output,
   if (col_txfm != NULL && row_txfm != NULL) {
     int ud_flip, lr_flip;
     get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-    const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-    const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-    const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-    const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+    const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+    const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+    const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
 
     for (int i = 0; i < 2; i++) {
       if (ud_flip) {
@@ -2812,10 +2810,9 @@ void av1_lowbd_fwd_txfm2d_32x8_neon(const int16_t *input, int32_t *output,
   if (col_txfm != NULL && row_txfm != NULL) {
     int ud_flip, lr_flip;
     get_flip_cfg(tx_type, &ud_flip, &lr_flip);
-    const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-    const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-    const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-    const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+    const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+    const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+    const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
 
     for (int i = 0; i < 4; i++) {
       if (ud_flip) {
@@ -2872,10 +2869,9 @@ void av1_lowbd_fwd_txfm2d_32x16_neon(const int16_t *input, int32_t *output,
   const transform_1d_lbd_neon row_txfm = row_txfm8x32_arr[tx_type];
 
   if (col_txfm != NULL && row_txfm != NULL) {
-    const int16x4_t v_shifts = vget_low_s16(vmovl_s8(vld1_s8(&shift[0])));
-    const int16x8_t v_shift0 = vdupq_lane_s16(v_shifts, 0);
-    const int16x8_t v_shift1 = vdupq_lane_s16(v_shifts, 1);
-    const int16x8_t v_shift2 = vdupq_lane_s16(v_shifts, 2);
+    const int16x8_t v_shift0 = vdupq_n_s16(shift[0]);
+    const int16x8_t v_shift1 = vdupq_n_s16(shift[1]);
+    const int16x8_t v_shift2 = vdupq_n_s16(shift[2]);
     int ud_flip, lr_flip;
     get_flip_cfg(tx_type, &ud_flip, &lr_flip);
 
@@ -4393,8 +4389,7 @@ static FwdTxfm2dFunc lowbd_fwd_txfm_func_ls[TX_SIZES_ALL] = {
 void av1_lowbd_fwd_txfm_neon(const int16_t *src_diff, tran_low_t *coeff,
                              int diff_stride, TxfmParam *txfm_param) {
   FwdTxfm2dFunc fwd_txfm2d_func = lowbd_fwd_txfm_func_ls[txfm_param->tx_size];
-  if ((fwd_txfm2d_func == NULL) ||
-      (txfm_param->lossless && txfm_param->tx_size == TX_4X4)) {
+  if (txfm_param->lossless && txfm_param->tx_size == TX_4X4) {
     av1_lowbd_fwd_txfm_c(src_diff, coeff, diff_stride, txfm_param);
   } else {
     fwd_txfm2d_func(src_diff, coeff, diff_stride, txfm_param->tx_type,

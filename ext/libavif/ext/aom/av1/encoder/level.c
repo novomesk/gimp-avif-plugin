@@ -209,10 +209,110 @@ static const AV1LevelSpec av1_level_defs[SEQ_LEVELS] = {
     .high_cr = 4.0,
     .max_tiles = 128,
     .max_tile_cols = 16 },
-  UNDEFINED_LEVEL,
-  UNDEFINED_LEVEL,
-  UNDEFINED_LEVEL,
-  UNDEFINED_LEVEL,
+  { .level = SEQ_LEVEL_7_0,
+    .max_picture_size = 142606336,
+    .max_h_size = 32768,
+    .max_v_size = 17408,
+    .max_display_rate = 4278190080L,
+    .max_decode_rate = 4706009088L,
+    .max_header_rate = 300,
+    .main_mbps = 160.0,
+    .high_mbps = 800.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 256,
+    .max_tile_cols = 32 },
+  { .level = SEQ_LEVEL_7_1,
+    .max_picture_size = 142606336,
+    .max_h_size = 32768,
+    .max_v_size = 17408,
+    .max_display_rate = 8556380160L,
+    .max_decode_rate = 8758886400L,
+    .max_header_rate = 300,
+    .main_mbps = 200.0,
+    .high_mbps = 960.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 256,
+    .max_tile_cols = 32 },
+  { .level = SEQ_LEVEL_7_2,
+    .max_picture_size = 142606336,
+    .max_h_size = 32768,
+    .max_v_size = 17408,
+    .max_display_rate = 17112760320L,
+    .max_decode_rate = 17517772800L,
+    .max_header_rate = 300,
+    .main_mbps = 320.0,
+    .high_mbps = 1600.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 256,
+    .max_tile_cols = 32 },
+  { .level = SEQ_LEVEL_7_3,
+    .max_picture_size = 142606336,
+    .max_h_size = 32768,
+    .max_v_size = 17408,
+    .max_display_rate = 17112760320L,
+    .max_decode_rate = 18824036352L,
+    .max_header_rate = 300,
+    .main_mbps = 320.0,
+    .high_mbps = 1600.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 256,
+    .max_tile_cols = 32 },
+  { .level = SEQ_LEVEL_8_0,
+    .max_picture_size = 530841600,
+    .max_h_size = 65536,
+    .max_v_size = 34816,
+    .max_display_rate = 17112760320L,
+    .max_decode_rate = 18824036352L,
+    .max_header_rate = 300,
+    .main_mbps = 320.0,
+    .high_mbps = 1600.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 512,
+    .max_tile_cols = 64 },
+  { .level = SEQ_LEVEL_8_1,
+    .max_picture_size = 530841600,
+    .max_h_size = 65536,
+    .max_v_size = 34816,
+    .max_display_rate = 34225520640L,
+    .max_decode_rate = 34910031052L,
+    .max_header_rate = 300,
+    .main_mbps = 400.0,
+    .high_mbps = 1920.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 512,
+    .max_tile_cols = 64 },
+  { .level = SEQ_LEVEL_8_2,
+    .max_picture_size = 530841600,
+    .max_h_size = 65536,
+    .max_v_size = 34816,
+    .max_display_rate = 68451041280L,
+    .max_decode_rate = 69820062105L,
+    .max_header_rate = 300,
+    .main_mbps = 640.0,
+    .high_mbps = 3200.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 512,
+    .max_tile_cols = 64 },
+  { .level = SEQ_LEVEL_8_3,
+    .max_picture_size = 530841600,
+    .max_h_size = 65536,
+    .max_v_size = 34816,
+    .max_display_rate = 68451041280L,
+    .max_decode_rate = 75296145408L,
+    .max_header_rate = 300,
+    .main_mbps = 640.0,
+    .high_mbps = 3200.0,
+    .main_cr = 8.0,
+    .high_cr = 4.0,
+    .max_tiles = 512,
+    .max_tile_cols = 64 },
 };
 
 typedef enum {
@@ -846,7 +946,6 @@ static void get_temporal_parallel_params(int scalability_mode_idc,
   }
 }
 
-#define MAX_TILE_SIZE (4096 * 2304)
 #define MIN_CROPPED_TILE_WIDTH 8
 #define MIN_CROPPED_TILE_HEIGHT 8
 #define MIN_FRAME_WIDTH 16
@@ -917,7 +1016,10 @@ static TARGET_LEVEL_FAIL_ID check_level_constraints(
       break;
     }
 
-    if (level_stats->max_tile_size > MAX_TILE_SIZE) {
+    const int max_tile_size = (level >= SEQ_LEVEL_7_0 && level <= SEQ_LEVEL_8_3)
+                                  ? MAX_TILE_AREA_LEVEL_7_AND_ABOVE
+                                  : MAX_TILE_AREA;
+    if (level_stats->max_tile_size > max_tile_size) {
       fail_id = TILE_TOO_LARGE;
       break;
     }
@@ -1223,7 +1325,7 @@ void av1_update_level_info(AV1_COMP *cpi, size_t size, int64_t ts_start,
 
     // Check whether target level is met.
     const AV1_LEVEL target_level = level_params->target_seq_level_idx[i];
-    if (target_level < SEQ_LEVELS) {
+    if (target_level < SEQ_LEVELS && cpi->oxcf.strict_level_conformance) {
       assert(is_valid_seq_level_idx(target_level));
       const int tier = seq_params->tier[i];
       const TARGET_LEVEL_FAIL_ID fail_id = check_level_constraints(
@@ -1260,6 +1362,18 @@ aom_codec_err_t av1_get_seq_level_idx(const SequenceHeader *seq_params,
         break;
       }
     }
+  }
+
+  return AOM_CODEC_OK;
+}
+
+aom_codec_err_t av1_get_target_seq_level_idx(const SequenceHeader *seq_params,
+                                             const AV1LevelParams *level_params,
+                                             int *target_seq_level_idx) {
+  for (int op = 0; op < seq_params->operating_points_cnt_minus_1 + 1; ++op) {
+    target_seq_level_idx[op] = (int)SEQ_LEVEL_MAX;
+    if (!((level_params->keep_level_stats >> op) & 1)) continue;
+    target_seq_level_idx[op] = level_params->target_seq_level_idx[op];
   }
 
   return AOM_CODEC_OK;

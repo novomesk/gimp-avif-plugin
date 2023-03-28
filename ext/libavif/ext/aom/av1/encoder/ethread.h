@@ -22,9 +22,9 @@ struct ThreadData;
 typedef struct EncWorkerData {
   struct AV1_COMP *cpi;
   struct ThreadData *td;
-#if CONFIG_FRAME_PARALLEL_ENCODE
   struct ThreadData *original_td;
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
+  AV1LfSync *lf_sync;
+  LFWorkerData *lf_data;
   int start;
   int thread_id;
 } EncWorkerData;
@@ -73,13 +73,17 @@ void av1_tpl_dealloc(AV1TplRowMultiThreadSync *tpl_sync);
 
 #endif  // !CONFIG_REALTIME_ONLY
 
+void av1_calc_mb_wiener_var_mt(AV1_COMP *cpi, int num_workers,
+                               double *sum_rec_distortion,
+                               double *sum_est_rate);
+
 void av1_tf_do_filtering_mt(AV1_COMP *cpi);
 
 void av1_tf_mt_dealloc(AV1TemporalFilterSync *tf_sync);
 
 void av1_compute_num_workers_for_mt(AV1_COMP *cpi);
 
-int av1_get_max_num_workers(AV1_COMP *cpi);
+int av1_get_max_num_workers(const AV1_COMP *cpi);
 
 void av1_create_workers(AV1_PRIMARY *ppi, int num_workers);
 
@@ -114,15 +118,12 @@ void av1_write_tile_obu_mt(
 
 int av1_compute_num_enc_workers(AV1_COMP *cpi, int max_workers);
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
 int av1_compute_num_fp_contexts(AV1_PRIMARY *ppi, AV1EncoderConfig *oxcf);
 
 int av1_check_fpmt_config(AV1_PRIMARY *const ppi, AV1EncoderConfig *const oxcf);
 
 int av1_compress_parallel_frames(AV1_PRIMARY *const ppi,
                                  AV1_COMP_DATA *const first_cpi_data);
-#endif
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif

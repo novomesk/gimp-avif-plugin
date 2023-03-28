@@ -18,10 +18,16 @@ else
 
   avif_local_inc = include_directories('../ext/libavif/include')
   avif = declare_dependency( include_directories : avif_local_inc ,
-    link_args: [meson.source_root()+'/ext/libavif/build/libavif.a', meson.source_root()+'/ext/libavif/ext/aom/build.libavif/libaom.a' ] )
+    link_args: [
+      meson.source_root()+'/ext/libavif/build/libavif.a',
+      meson.source_root()+'/ext/libavif/ext/aom/build.libavif/libaom.a',
+      meson.source_root()+'/ext/libavif/ext/dav1d/build/src/libdav1d.a',
+      meson.source_root()+'/ext/libavif/ext/libyuv/build/libyuv.a',
+      '-lm'
+    ] )
   # we need to ensure that local dependencies were build
   # build_local_libaom_avif.sh script will buid libaom.a and libavif.a if they are missing
-  r = run_command(meson.source_root()+'/ext/build_local_libaom_libavif.sh')
+  r = run_command(meson.source_root()+'/ext/build_local_libaom_libavif.sh', check: false)
   if r.returncode() != 0
     error(r.stderr())
   endif

@@ -272,42 +272,50 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
     input_ = reinterpret_cast<uint8_t *>(
                  aom_memalign(kDataAlignment, kInputBufferSize + 1)) +
              1;
+    ASSERT_NE(input_, nullptr);
     ref8_ = reinterpret_cast<uint8_t *>(
         aom_memalign(kDataAlignment, kOutputStride * kMaxDimension));
+    ASSERT_NE(ref8_, nullptr);
     output_ = reinterpret_cast<uint8_t *>(
         aom_memalign(kDataAlignment, kOutputBufferSize));
+    ASSERT_NE(output_, nullptr);
     output_ref_ = reinterpret_cast<uint8_t *>(
         aom_memalign(kDataAlignment, kOutputBufferSize));
+    ASSERT_NE(output_ref_, nullptr);
     input16_ = reinterpret_cast<uint16_t *>(aom_memalign(
                    kDataAlignment, (kInputBufferSize + 1) * sizeof(uint16_t))) +
                1;
+    ASSERT_NE(input16_, nullptr);
     ref16_ = reinterpret_cast<uint16_t *>(aom_memalign(
         kDataAlignment, kOutputStride * kMaxDimension * sizeof(uint16_t)));
+    ASSERT_NE(ref16_, nullptr);
     output16_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, (kOutputBufferSize) * sizeof(uint16_t)));
+    ASSERT_NE(output16_, nullptr);
     output16_ref_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, (kOutputBufferSize) * sizeof(uint16_t)));
+    ASSERT_NE(output16_ref_, nullptr);
   }
 
   virtual void TearDown() {}
 
   static void TearDownTestSuite() {
     aom_free(input_ - 1);
-    input_ = NULL;
+    input_ = nullptr;
     aom_free(ref8_);
-    ref8_ = NULL;
+    ref8_ = nullptr;
     aom_free(output_);
-    output_ = NULL;
+    output_ = nullptr;
     aom_free(output_ref_);
-    output_ref_ = NULL;
+    output_ref_ = nullptr;
     aom_free(input16_ - 1);
-    input16_ = NULL;
+    input16_ = nullptr;
     aom_free(ref16_);
-    ref16_ = NULL;
+    ref16_ = nullptr;
     aom_free(output16_);
-    output16_ = NULL;
+    output16_ = nullptr;
     aom_free(output16_ref_);
-    output16_ref_ = NULL;
+    output16_ref_ = nullptr;
   }
 
  protected:
@@ -466,14 +474,14 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
   int mask_;
 };
 
-uint8_t *ConvolveTest::input_ = NULL;
-uint8_t *ConvolveTest::ref8_ = NULL;
-uint8_t *ConvolveTest::output_ = NULL;
-uint8_t *ConvolveTest::output_ref_ = NULL;
-uint16_t *ConvolveTest::input16_ = NULL;
-uint16_t *ConvolveTest::ref16_ = NULL;
-uint16_t *ConvolveTest::output16_ = NULL;
-uint16_t *ConvolveTest::output16_ref_ = NULL;
+uint8_t *ConvolveTest::input_ = nullptr;
+uint8_t *ConvolveTest::ref8_ = nullptr;
+uint8_t *ConvolveTest::output_ = nullptr;
+uint8_t *ConvolveTest::output_ref_ = nullptr;
+uint16_t *ConvolveTest::input16_ = nullptr;
+uint16_t *ConvolveTest::ref16_ = nullptr;
+uint16_t *ConvolveTest::output16_ = nullptr;
+uint16_t *ConvolveTest::output16_ref_ = nullptr;
 
 TEST_P(ConvolveTest, GuardBlocks) { CheckGuardBlocks(); }
 

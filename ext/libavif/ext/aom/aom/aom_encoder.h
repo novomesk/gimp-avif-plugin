@@ -76,8 +76,7 @@ extern "C" {
  *
  *  The available flags are specified by AOM_CODEC_USE_* defines.
  */
-#define AOM_CODEC_USE_PSNR 0x10000 /**< Calculate PSNR on each frame */
-/*!\brief Make the encoder output one  partition at a time. */
+#define AOM_CODEC_USE_PSNR 0x10000         /**< Calculate PSNR on each frame */
 #define AOM_CODEC_USE_HIGHBITDEPTH 0x40000 /**< Use high bitdepth */
 
 /*!\brief Generic fixed size buffer structure
@@ -435,6 +434,11 @@ typedef struct aom_codec_enc_cfg {
 
   /*!\brief Max number of frames to encode
    *
+   * If force video mode is off (the default) and g_limit is 1, the encoder
+   * will encode a still picture (still_picture is set to 1 in the sequence
+   * header OBU). If in addition full_still_picture_hdr is 0 (the default),
+   * the encoder will use a reduced header (reduced_still_picture_header is
+   * set to 1 in the sequence header OBU) for the still picture.
    */
   unsigned int g_limit;
 
@@ -817,10 +821,12 @@ typedef struct aom_codec_enc_cfg {
 
   /*!\brief full_still_picture_hdr
    *
-   * If this is nonzero, the encoder will generate a full header even for
-   * still picture encoding. if zero, a reduced header is used for still
-   * picture. This flag has no effect when a regular video with more than
-   * a single frame is encoded.
+   * If this is nonzero, the encoder will generate a full header
+   * (reduced_still_picture_header is set to 0 in the sequence header OBU) even
+   * for still picture encoding. If this is zero (the default), a reduced
+   * header (reduced_still_picture_header is set to 1 in the sequence header
+   * OBU) is used for still picture encoding. This flag has no effect when a
+   * regular video with more than a single frame is encoded.
    */
   unsigned int full_still_picture_hdr;
 
@@ -878,37 +884,16 @@ typedef struct aom_codec_enc_cfg {
    *
    * If a value of 1 is provided, encoder will use fixed QP offsets for frames
    * at different levels of the pyramid.
-   * - If 'fixed_qp_offsets' is also provided, encoder will use the given
-   * offsets
-   * - If not, encoder will select the fixed offsets based on the cq-level
-   *   provided.
-   * If a value of 0 is provided and fixed_qp_offset are not provided, encoder
-   * will NOT use fixed QP offsets.
+   * If a value of 0 is provided, encoder will NOT use fixed QP offsets.
    * Note: This option is only relevant for --end-usage=q.
    */
   unsigned int use_fixed_qp_offsets;
 
-/*!\brief Number of fixed QP offsets
- *
- * This defines the number of elements in the fixed_qp_offsets array.
- */
-#define FIXED_QP_OFFSET_COUNT 5
-
-  /*!\brief Array of fixed QP offsets
+  /*!\brief Deprecated and ignored. DO NOT USE.
    *
-   * This array specifies fixed QP offsets (range: 0 to 63) for frames at
-   * different levels of the pyramid. It is a comma-separated list of 5 values:
-   * - QP offset for keyframe
-   * - QP offset for ALTREF frame
-   * - QP offset for 1st level internal ARF
-   * - QP offset for 2nd level internal ARF
-   * - QP offset for 3rd level internal ARF
-   * Notes:
-   * - QP offset for leaf level frames is not explicitly specified. These frames
-   *   use the worst quality allowed (--cq-level).
-   * - This option is only relevant for --end-usage=q.
+   * TODO(aomedia:3269): Remove fixed_qp_offsets in libaom v4.0.0.
    */
-  int fixed_qp_offsets[FIXED_QP_OFFSET_COUNT];
+  int fixed_qp_offsets[5];
 
   /*!\brief Options defined per config file
    *
@@ -1037,6 +1022,8 @@ aom_fixed_buf_t *aom_codec_get_global_headers(aom_codec_ctx_t *ctx);
  *
  * \param[in]    ctx       Pointer to this instance's context
  * \param[in]    img       Image data to encode, NULL to flush.
+ *                         Encoding sample values outside the range
+ *                         [0..(1<<img->bit_depth)-1] is undefined behavior.
  * \param[in]    pts       Presentation time stamp, in timebase units. If img
  *                         is NULL, pts is ignored.
  * \param[in]    duration  Duration to show frame, in timebase units. If img

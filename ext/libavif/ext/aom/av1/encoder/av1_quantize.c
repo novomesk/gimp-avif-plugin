@@ -305,6 +305,7 @@ void av1_quantize_b_facade(const tran_low_t *coeff_ptr, intptr_t n_coeffs,
                            const SCAN_ORDER *sc, const QUANT_PARAM *qparam) {
   const qm_val_t *qm_ptr = qparam->qmatrix;
   const qm_val_t *iqm_ptr = qparam->iqmatrix;
+#if !CONFIG_REALTIME_ONLY
   if (qparam->use_quant_b_adapt) {
     // TODO(sarahparker) These quantize_b optimizations need SIMD
     // implementations
@@ -336,34 +337,36 @@ void av1_quantize_b_facade(const tran_low_t *coeff_ptr, intptr_t n_coeffs,
         default: assert(0);
       }
     }
+    return;
+  }
+#endif  // !CONFIG_REALTIME_ONLY
+
+  if (qm_ptr != NULL && iqm_ptr != NULL) {
+    aom_quantize_b_helper_c(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
+                            p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
+                            dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
+                            sc->iscan, qm_ptr, iqm_ptr, qparam->log_scale);
   } else {
-    if (qm_ptr != NULL && iqm_ptr != NULL) {
-      aom_quantize_b_helper_c(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
-                              p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
-                              dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
-                              sc->iscan, qm_ptr, iqm_ptr, qparam->log_scale);
-    } else {
-      switch (qparam->log_scale) {
-        case 0:
-          aom_quantize_b(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
-                         p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
-                         dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
-                         sc->iscan);
-          break;
-        case 1:
-          aom_quantize_b_32x32(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
-                               p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
-                               dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
-                               sc->iscan);
-          break;
-        case 2:
-          aom_quantize_b_64x64(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
-                               p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
-                               dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
-                               sc->iscan);
-          break;
-        default: assert(0);
-      }
+    switch (qparam->log_scale) {
+      case 0:
+        aom_quantize_b(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
+                       p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
+                       dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
+                       sc->iscan);
+        break;
+      case 1:
+        aom_quantize_b_32x32(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
+                             p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
+                             dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
+                             sc->iscan);
+        break;
+      case 2:
+        aom_quantize_b_64x64(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
+                             p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
+                             dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
+                             sc->iscan);
+        break;
+      default: assert(0);
     }
   }
 }
@@ -446,6 +449,7 @@ void av1_highbd_quantize_b_facade(const tran_low_t *coeff_ptr,
                                   const QUANT_PARAM *qparam) {
   const qm_val_t *qm_ptr = qparam->qmatrix;
   const qm_val_t *iqm_ptr = qparam->iqmatrix;
+#if !CONFIG_REALTIME_ONLY
   if (qparam->use_quant_b_adapt) {
     if (qm_ptr != NULL && iqm_ptr != NULL) {
       aom_highbd_quantize_b_adaptive_helper_c(
@@ -475,34 +479,36 @@ void av1_highbd_quantize_b_facade(const tran_low_t *coeff_ptr,
         default: assert(0);
       }
     }
+    return;
+  }
+#endif  // !CONFIG_REALTIME_ONLY
+
+  if (qm_ptr != NULL && iqm_ptr != NULL) {
+    aom_highbd_quantize_b_helper_c(
+        coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX, p->quant_QTX,
+        p->quant_shift_QTX, qcoeff_ptr, dqcoeff_ptr, p->dequant_QTX, eob_ptr,
+        sc->scan, sc->iscan, qm_ptr, iqm_ptr, qparam->log_scale);
   } else {
-    if (qm_ptr != NULL && iqm_ptr != NULL) {
-      aom_highbd_quantize_b_helper_c(
-          coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX, p->quant_QTX,
-          p->quant_shift_QTX, qcoeff_ptr, dqcoeff_ptr, p->dequant_QTX, eob_ptr,
-          sc->scan, sc->iscan, qm_ptr, iqm_ptr, qparam->log_scale);
-    } else {
-      switch (qparam->log_scale) {
-        case 0:
-          aom_highbd_quantize_b(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
-                                p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
-                                dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
-                                sc->iscan);
-          break;
-        case 1:
-          aom_highbd_quantize_b_32x32(
-              coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX, p->quant_QTX,
-              p->quant_shift_QTX, qcoeff_ptr, dqcoeff_ptr, p->dequant_QTX,
-              eob_ptr, sc->scan, sc->iscan);
-          break;
-        case 2:
-          aom_highbd_quantize_b_64x64(
-              coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX, p->quant_QTX,
-              p->quant_shift_QTX, qcoeff_ptr, dqcoeff_ptr, p->dequant_QTX,
-              eob_ptr, sc->scan, sc->iscan);
-          break;
-        default: assert(0);
-      }
+    switch (qparam->log_scale) {
+      case 0:
+        aom_highbd_quantize_b(coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX,
+                              p->quant_QTX, p->quant_shift_QTX, qcoeff_ptr,
+                              dqcoeff_ptr, p->dequant_QTX, eob_ptr, sc->scan,
+                              sc->iscan);
+        break;
+      case 1:
+        aom_highbd_quantize_b_32x32(
+            coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX, p->quant_QTX,
+            p->quant_shift_QTX, qcoeff_ptr, dqcoeff_ptr, p->dequant_QTX,
+            eob_ptr, sc->scan, sc->iscan);
+        break;
+      case 2:
+        aom_highbd_quantize_b_64x64(
+            coeff_ptr, n_coeffs, p->zbin_QTX, p->round_QTX, p->quant_QTX,
+            p->quant_shift_QTX, qcoeff_ptr, dqcoeff_ptr, p->dequant_QTX,
+            eob_ptr, sc->scan, sc->iscan);
+        break;
+      default: assert(0);
     }
   }
 }
@@ -736,32 +742,64 @@ void av1_set_qmatrix(const CommonQuantParams *quant_params, int segment_id,
 }
 
 void av1_init_plane_quantizers(const AV1_COMP *cpi, MACROBLOCK *x,
-                               int segment_id) {
+                               int segment_id, const int do_update) {
   const AV1_COMMON *const cm = &cpi->common;
   const CommonQuantParams *const quant_params = &cm->quant_params;
+  const GF_GROUP *const gf_group = &cpi->ppi->gf_group;
+  const int boost_index = AOMMIN(15, (cpi->ppi->p_rc.gfu_boost / 100));
+  const int layer_depth = AOMMIN(gf_group->layer_depth[cpi->gf_frame_index], 6);
+  const FRAME_TYPE frame_type = cm->current_frame.frame_type;
+  int qindex_rd;
+
   const int current_qindex = AOMMAX(
       0,
       AOMMIN(QINDEX_RANGE - 1, cm->delta_q_info.delta_q_present_flag
                                    ? quant_params->base_qindex + x->delta_qindex
                                    : quant_params->base_qindex));
   const int qindex = av1_get_qindex(&cm->seg, segment_id, current_qindex);
-  const int rdmult =
-      av1_compute_rd_mult(cpi, qindex + quant_params->y_dc_delta_q);
-  av1_set_q_index(&cpi->enc_quant_dequant_params, qindex, x);
+
+  if (cpi->oxcf.sb_qp_sweep) {
+    const int current_rd_qindex =
+        AOMMAX(0, AOMMIN(QINDEX_RANGE - 1, cm->delta_q_info.delta_q_present_flag
+                                               ? quant_params->base_qindex +
+                                                     x->rdmult_delta_qindex
+                                               : quant_params->base_qindex));
+    qindex_rd = av1_get_qindex(&cm->seg, segment_id, current_rd_qindex);
+  } else {
+    qindex_rd = qindex;
+  }
+
+  const int qindex_rdmult = qindex_rd + quant_params->y_dc_delta_q;
+  const int rdmult = av1_compute_rd_mult(
+      qindex_rdmult, cm->seq_params->bit_depth,
+      cpi->ppi->gf_group.update_type[cpi->gf_frame_index], layer_depth,
+      boost_index, frame_type, cpi->oxcf.q_cfg.use_fixed_qp_offsets,
+      is_stat_consumption_stage(cpi));
+
+  const int qindex_change = x->qindex != qindex;
+  if (qindex_change || do_update) {
+    av1_set_q_index(&cpi->enc_quant_dequant_params, qindex, x);
+  }
 
   MACROBLOCKD *const xd = &x->e_mbd;
-  av1_set_qmatrix(quant_params, segment_id, xd);
+  if ((segment_id != x->prev_segment_id) ||
+      av1_use_qmatrix(quant_params, xd, segment_id)) {
+    av1_set_qmatrix(quant_params, segment_id, xd);
+  }
 
   x->seg_skip_block = segfeature_active(&cm->seg, segment_id, SEG_LVL_SKIP);
 
   av1_set_error_per_bit(&x->errorperbit, rdmult);
-  av1_set_sad_per_bit(cpi, &x->sadperbit, qindex);
+  av1_set_sad_per_bit(cpi, &x->sadperbit, qindex_rd);
+
+  x->prev_segment_id = segment_id;
 }
 
 void av1_frame_init_quantizer(AV1_COMP *cpi) {
   MACROBLOCK *const x = &cpi->td.mb;
   MACROBLOCKD *const xd = &x->e_mbd;
-  av1_init_plane_quantizers(cpi, x, xd->mi[0]->segment_id);
+  x->prev_segment_id = -1;
+  av1_init_plane_quantizers(cpi, x, xd->mi[0]->segment_id, 1);
 }
 
 static int adjust_hdr_cb_deltaq(int base_qindex) {

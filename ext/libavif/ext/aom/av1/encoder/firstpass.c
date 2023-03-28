@@ -36,6 +36,7 @@
 #include "av1/encoder/encodemb.h"
 #include "av1/encoder/encodemv.h"
 #include "av1/encoder/encoder.h"
+#include "av1/encoder/encoder_utils.h"
 #include "av1/encoder/encode_strategy.h"
 #include "av1/encoder/ethread.h"
 #include "av1/encoder/extend.h"
@@ -473,8 +474,10 @@ static int firstpass_intra_prediction(
 
   set_mi_offsets(mi_params, xd, unit_row * unit_scale, unit_col * unit_scale);
   xd->plane[0].dst.buf = this_frame->y_buffer + y_offset;
-  xd->plane[1].dst.buf = this_frame->u_buffer + uv_offset;
-  xd->plane[2].dst.buf = this_frame->v_buffer + uv_offset;
+  if (num_planes > 1) {
+    xd->plane[1].dst.buf = this_frame->u_buffer + uv_offset;
+    xd->plane[2].dst.buf = this_frame->v_buffer + uv_offset;
+  }
   xd->left_available = (unit_col != 0);
   xd->mi[0]->bsize = bsize;
   xd->mi[0]->ref_frame[0] = INTRA_FRAME;
@@ -761,8 +764,10 @@ static int firstpass_inter_prediction(
 
     // Reset to last frame as reference buffer.
     xd->plane[0].pre[0].buf = last_frame->y_buffer + recon_yoffset;
-    xd->plane[1].pre[0].buf = last_frame->u_buffer + recon_uvoffset;
-    xd->plane[2].pre[0].buf = last_frame->v_buffer + recon_uvoffset;
+    if (av1_num_planes(&cpi->common) > 1) {
+      xd->plane[1].pre[0].buf = last_frame->u_buffer + recon_uvoffset;
+      xd->plane[2].pre[0].buf = last_frame->v_buffer + recon_uvoffset;
+    }
   } else {
     stats->sr_coded_error += motion_error;
   }
@@ -884,7 +889,7 @@ static void update_firstpass_stats(AV1_COMP *cpi,
   fps.pcnt_neutral = (double)stats->neutral_count / num_mbs;
   fps.intra_skip_pct = (double)stats->intra_skip_count / num_mbs;
   fps.inactive_zone_rows = (double)stats->image_data_start_row;
-  fps.inactive_zone_cols = (double)0;  // TODO(paulwilkins): fix
+  fps.inactive_zone_cols = (double)0;  // Placeholder: not currently supported.
   fps.raw_error_stdev = raw_err_stdev;
   fps.is_flash = 0;
   fps.noise_var = (double)0;
@@ -934,14 +939,18 @@ static void update_firstpass_stats(AV1_COMP *cpi,
   if (cpi->ppi->twopass.stats_buf_ctx->total_stats != NULL) {
     av1_accumulate_stats(cpi->ppi->twopass.stats_buf_ctx->total_stats, &fps);
   }
-  /*In the case of two pass, first pass uses it as a circular buffer,
-   * when LAP is enabled it is used as a linear buffer*/
   twopass->stats_buf_ctx->stats_in_end++;
-  if ((cpi->oxcf.pass == AOM_RC_FIRST_PASS) &&
-      (twopass->stats_buf_ctx->stats_in_end >=
-       twopass->stats_buf_ctx->stats_in_buf_end)) {
-    twopass->stats_buf_ctx->stats_in_end =
-        twopass->stats_buf_ctx->stats_in_start;
+  // When ducky encode is on, we always use linear buffer for stats_buf_ctx.
+  if (cpi->use_ducky_encode == 0) {
+    // TODO(angiebird): Figure out why first pass uses circular buffer.
+    /* In the case of two pass, first pass uses it as a circular buffer,
+     * when LAP is enabled it is used as a linear buffer*/
+    if ((cpi->oxcf.pass == AOM_RC_FIRST_PASS) &&
+        (twopass->stats_buf_ctx->stats_in_end >=
+         twopass->stats_buf_ctx->stats_in_buf_end)) {
+      twopass->stats_buf_ctx->stats_in_end =
+          twopass->stats_buf_ctx->stats_in_start;
+    }
   }
 }
 
@@ -1023,20 +1032,20 @@ static void free_firstpass_data(FirstPassData *firstpass_data) {
   aom_free(firstpass_data->mb_stats);
 }
 
-int av1_get_unit_rows_in_tile(TileInfo tile, const BLOCK_SIZE fp_block_size) {
+int av1_get_unit_rows_in_tile(const TileInfo *tile,
+                              const BLOCK_SIZE fp_block_size) {
   const int unit_height_log2 = mi_size_high_log2[fp_block_size];
-  const int mi_rows_aligned_to_unit =
-      ALIGN_POWER_OF_TWO(tile.mi_row_end - tile.mi_row_start, unit_height_log2);
-  const int unit_rows = mi_rows_aligned_to_unit >> unit_height_log2;
+  const int mi_rows = tile->mi_row_end - tile->mi_row_start;
+  const int unit_rows = CEIL_POWER_OF_TWO(mi_rows, unit_height_log2);
 
   return unit_rows;
 }
 
-int av1_get_unit_cols_in_tile(TileInfo tile, const BLOCK_SIZE fp_block_size) {
+int av1_get_unit_cols_in_tile(const TileInfo *tile,
+                              const BLOCK_SIZE fp_block_size) {
   const int unit_width_log2 = mi_size_wide_log2[fp_block_size];
-  const int mi_cols_aligned_to_unit =
-      ALIGN_POWER_OF_TWO(tile.mi_col_end - tile.mi_col_start, unit_width_log2);
-  const int unit_cols = mi_cols_aligned_to_unit >> unit_width_log2;
+  const int mi_cols = tile->mi_col_end - tile->mi_col_start;
+  const int unit_cols = CEIL_POWER_OF_TWO(mi_cols, unit_width_log2);
 
   return unit_cols;
 }
@@ -1104,7 +1113,7 @@ void av1_first_pass_row(AV1_COMP *cpi, ThreadData *td, TileDataEnc *tile_data,
   int raw_motion_err_counts = 0;
   int unit_row_in_tile = unit_row - (tile->mi_row_start >> unit_height_log2);
   int unit_col_start = tile->mi_col_start >> unit_width_log2;
-  int unit_cols_in_tile = av1_get_unit_cols_in_tile(*tile, fp_block_size);
+  int unit_cols_in_tile = av1_get_unit_cols_in_tile(tile, fp_block_size);
   MultiThreadInfo *const mt_info = &cpi->mt_info;
   AV1EncRowMultiThreadInfo *const enc_row_mt = &mt_info->enc_row_mt;
   AV1EncRowMultiThreadSync *const row_mt_sync = &tile_data->row_mt_sync;
@@ -1161,13 +1170,11 @@ void av1_first_pass_row(AV1_COMP *cpi, ThreadData *td, TileDataEnc *tile_data,
   // block sizes smaller than 16x16.
   av1_zero_array(x->plane[0].src_diff, 256);
 
-  for (int mi_col = tile->mi_col_start; mi_col < tile->mi_col_end;
-       mi_col += unit_width) {
-    const int unit_col = mi_col >> unit_width_log2;
-    const int unit_col_in_tile = unit_col - unit_col_start;
+  for (int unit_col_in_tile = 0; unit_col_in_tile < unit_cols_in_tile;
+       unit_col_in_tile++) {
+    const int unit_col = unit_col_start + unit_col_in_tile;
 
-    (*(enc_row_mt->sync_read_ptr))(row_mt_sync, unit_row_in_tile,
-                                   unit_col_in_tile);
+    enc_row_mt->sync_read_ptr(row_mt_sync, unit_row_in_tile, unit_col_in_tile);
 
     if (unit_col_in_tile == 0) {
       last_mv = *first_top_mv;
@@ -1194,17 +1201,43 @@ void av1_first_pass_row(AV1_COMP *cpi, ThreadData *td, TileDataEnc *tile_data,
 
     // Adjust to the next column of MBs.
     x->plane[0].src.buf += fp_block_size_width;
-    x->plane[1].src.buf += uv_mb_height;
-    x->plane[2].src.buf += uv_mb_height;
+    if (num_planes > 1) {
+      x->plane[1].src.buf += uv_mb_height;
+      x->plane[2].src.buf += uv_mb_height;
+    }
 
     recon_yoffset += fp_block_size_width;
     src_yoffset += fp_block_size_width;
     recon_uvoffset += uv_mb_height;
     mb_stats++;
 
-    (*(enc_row_mt->sync_write_ptr))(row_mt_sync, unit_row_in_tile,
-                                    unit_col_in_tile, unit_cols_in_tile);
+    enc_row_mt->sync_write_ptr(row_mt_sync, unit_row_in_tile, unit_col_in_tile,
+                               unit_cols_in_tile);
   }
+}
+
+void av1_noop_first_pass_frame(AV1_COMP *cpi, const int64_t ts_duration) {
+  AV1_COMMON *const cm = &cpi->common;
+  CurrentFrame *const current_frame = &cm->current_frame;
+  const CommonModeInfoParams *const mi_params = &cm->mi_params;
+  int max_mb_rows = mi_params->mb_rows;
+  int max_mb_cols = mi_params->mb_cols;
+  if (cpi->oxcf.frm_dim_cfg.forced_max_frame_width) {
+    int max_mi_cols = size_in_mi(cpi->oxcf.frm_dim_cfg.forced_max_frame_width);
+    max_mb_cols = ROUND_POWER_OF_TWO(max_mi_cols, 2);
+  }
+  if (cpi->oxcf.frm_dim_cfg.forced_max_frame_height) {
+    int max_mi_rows = size_in_mi(cpi->oxcf.frm_dim_cfg.forced_max_frame_height);
+    max_mb_rows = ROUND_POWER_OF_TWO(max_mi_rows, 2);
+  }
+  const int unit_rows = get_unit_rows(BLOCK_16X16, max_mb_rows);
+  const int unit_cols = get_unit_cols(BLOCK_16X16, max_mb_cols);
+  setup_firstpass_data(cm, &cpi->firstpass_data, unit_rows, unit_cols);
+  FRAME_STATS *mb_stats = cpi->firstpass_data.mb_stats;
+  FRAME_STATS stats = accumulate_frame_stats(mb_stats, unit_rows, unit_cols);
+  free_firstpass_data(&cpi->firstpass_data);
+  update_firstpass_stats(cpi, &stats, 1.0, current_frame->frame_number,
+                         ts_duration, BLOCK_16X16);
 }
 
 void av1_first_pass(AV1_COMP *cpi, const int64_t ts_duration) {
@@ -1216,9 +1249,12 @@ void av1_first_pass(AV1_COMP *cpi, const int64_t ts_duration) {
   const int num_planes = av1_num_planes(cm);
   MACROBLOCKD *const xd = &x->e_mbd;
   const int qindex = find_fp_qindex(seq_params->bit_depth);
+
   // Detect if the key frame is screen content type.
   if (frame_is_intra_only(cm)) {
     FeatureFlags *const features = &cm->features;
+    assert(cpi->source != NULL);
+    xd->cur_buf = cpi->source;
     av1_set_screen_content_options(cpi, features);
   }
 
@@ -1229,10 +1265,21 @@ void av1_first_pass(AV1_COMP *cpi, const int64_t ts_duration) {
   const BLOCK_SIZE fp_block_size =
       get_fp_block_size(cpi->is_screen_content_type);
 
+  int max_mb_rows = mi_params->mb_rows;
+  int max_mb_cols = mi_params->mb_cols;
+  if (cpi->oxcf.frm_dim_cfg.forced_max_frame_width) {
+    int max_mi_cols = size_in_mi(cpi->oxcf.frm_dim_cfg.forced_max_frame_width);
+    max_mb_cols = ROUND_POWER_OF_TWO(max_mi_cols, 2);
+  }
+  if (cpi->oxcf.frm_dim_cfg.forced_max_frame_height) {
+    int max_mi_rows = size_in_mi(cpi->oxcf.frm_dim_cfg.forced_max_frame_height);
+    max_mb_rows = ROUND_POWER_OF_TWO(max_mi_rows, 2);
+  }
+
   // Number of rows in the unit size.
-  // Note mi_params->mb_rows and mi_params->mb_cols are in the unit of 16x16.
-  const int unit_rows = get_unit_rows(fp_block_size, mi_params->mb_rows);
-  const int unit_cols = get_unit_cols(fp_block_size, mi_params->mb_cols);
+  // Note max_mb_rows and max_mb_cols are in the unit of 16x16.
+  const int unit_rows = get_unit_rows(fp_block_size, max_mb_rows);
+  const int unit_cols = get_unit_cols(fp_block_size, max_mb_cols);
 
   // Set fp_block_size, for the convenience of multi-thread usage.
   cpi->fp_block_size = fp_block_size;
@@ -1248,7 +1295,6 @@ void av1_first_pass(AV1_COMP *cpi, const int64_t ts_duration) {
   const int tile_cols = cm->tiles.cols;
   const int tile_rows = cm->tiles.rows;
   if (cpi->allocated_tiles < tile_cols * tile_rows) {
-    av1_row_mt_mem_dealloc(cpi);
     av1_alloc_tile_data(cpi);
   }
 
@@ -1264,6 +1310,7 @@ void av1_first_pass(AV1_COMP *cpi, const int64_t ts_duration) {
   assert(frame_is_intra_only(cm) || (last_frame != NULL));
 
   av1_setup_frame_size(cpi);
+  av1_set_mv_search_params(cpi);
 
   set_mi_offsets(mi_params, xd, 0, 0);
   xd->mi[0]->bsize = fp_block_size;

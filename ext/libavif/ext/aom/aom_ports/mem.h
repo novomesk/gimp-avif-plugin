@@ -62,12 +62,17 @@
   (((value) < 0) ? -ROUND_POWER_OF_TWO_64(-(value), (n)) \
                  : ROUND_POWER_OF_TWO_64((value), (n)))
 
+/* Shift down with ceil() for use when n >= 0 and value >= 0.*/
+#define CEIL_POWER_OF_TWO(value, n) (((value) + (1 << (n)) - 1) >> (n))
+
 /* shift right or left depending on sign of n */
 #define RIGHT_SIGNED_SHIFT(value, n) \
   ((n) < 0 ? ((value) << (-(n))) : ((value) >> (n)))
 
 #define ALIGN_POWER_OF_TWO(value, n) \
   (((value) + ((1 << (n)) - 1)) & ~((1 << (n)) - 1))
+#define ALIGN_POWER_OF_TWO_UNSIGNED(value, n) \
+  (((value) + ((1u << (n)) - 1)) & ~((1u << (n)) - 1))
 
 #define DIVIDE_AND_ROUND(x, y) (((x) + ((y) >> 1)) / (y))
 

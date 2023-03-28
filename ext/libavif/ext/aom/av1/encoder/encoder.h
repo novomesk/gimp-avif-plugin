@@ -27,6 +27,7 @@
 #include "av1/common/blockd.h"
 #include "av1/common/entropymode.h"
 #include "av1/common/enums.h"
+#include "av1/common/reconintra.h"
 #include "av1/common/resize.h"
 #include "av1/common/thread_common.h"
 #include "av1/common/timing.h"
@@ -103,16 +104,6 @@ typedef struct aom_rational64 {
 } aom_rational64_t;  // alias for struct aom_rational
 
 enum {
-  NORMAL = 0,
-  FOURFIVE = 1,
-  THREEFIVE = 2,
-  THREEFOUR = 3,
-  ONEFOUR = 4,
-  ONEEIGHT = 5,
-  ONETWO = 6
-} UENUM1BYTE(AOM_SCALING);
-
-enum {
   // Good Quality Fast Encoding. The encoder balances quality with the amount of
   // time it takes to encode the output. Speed setting controls how fast.
   GOOD,
@@ -134,14 +125,13 @@ enum {
   FRAMEFLAGS_ERROR_RESILIENT = 1 << 6,
 } UENUM1BYTE(FRAMETYPE_FLAGS);
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
 #if CONFIG_FPMT_TEST
 enum {
   PARALLEL_ENCODE = 0,
   PARALLEL_SIMULATION_ENCODE,
   NUM_FPMT_TEST_ENCODES
 } UENUM1BYTE(FPMT_TEST_ENC_CFG);
-#endif
+#endif  // CONFIG_FPMT_TEST
 // 0 level frames are sometimes used for rate control purposes, but for
 // reference mapping purposes, the minimum level should be 1.
 #define MIN_PYR_LEVEL 1
@@ -159,7 +149,6 @@ static INLINE int get_true_pyr_level(int frame_level, int frame_order,
   }
   return AOMMAX(MIN_PYR_LEVEL, frame_level);
 }
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
 
 enum {
   NO_AQ = 0,
@@ -201,8 +190,6 @@ enum {
 
 #define MAX_VBR_CORPUS_COMPLEXITY 10000
 
-/*!\cond */
-
 typedef enum {
   MOD_FP,           // First pass
   MOD_TF,           // Temporal filtering
@@ -215,19 +202,24 @@ typedef enum {
   MOD_LR,           // Loop restoration filtering
   MOD_PACK_BS,      // Pack bitstream
   MOD_FRAME_ENC,    // Frame Parallel encode
+  MOD_AI,           // All intra
   NUM_MT_MODULES
 } MULTI_THREADED_MODULES;
 
 /*!\endcond */
 
 /*!\enum COST_UPDATE_TYPE
- * \brief This enum controls how often the entropy costs should be updated.
+ * \brief    This enum controls how often the entropy costs should be updated.
+ * \warning  In case of any modifications/additions done to the enum
+ * COST_UPDATE_TYPE, the enum INTERNAL_COST_UPDATE_TYPE needs to be updated as
+ * well.
  */
 typedef enum {
-  COST_UPD_SB,    /*!< Update every sb. */
-  COST_UPD_SBROW, /*!< Update every sb rows inside a tile. */
-  COST_UPD_TILE,  /*!< Update every tile. */
-  COST_UPD_OFF,   /*!< Turn off cost updates. */
+  COST_UPD_SB,           /*!< Update every sb. */
+  COST_UPD_SBROW,        /*!< Update every sb rows inside a tile. */
+  COST_UPD_TILE,         /*!< Update every tile. */
+  COST_UPD_OFF,          /*!< Turn off cost updates. */
+  NUM_COST_UPDATE_TYPES, /*!< Number of cost update types. */
 } COST_UPDATE_TYPE;
 
 /*!\enum LOOPFILTER_CONTROL
@@ -240,6 +232,17 @@ typedef enum {
   LOOPFILTER_SELECTIVELY =
       3, /*!< Disable loopfilter on frames with low motion. */
 } LOOPFILTER_CONTROL;
+
+/*!\enum SKIP_APPLY_POSTPROC_FILTER
+ * \brief This enum controls the application of post-processing filters on a
+ * reconstructed frame.
+ */
+typedef enum {
+  SKIP_APPLY_RESTORATION = 1 << 0,
+  SKIP_APPLY_SUPERRES = 1 << 1,
+  SKIP_APPLY_CDEF = 1 << 2,
+  SKIP_APPLY_LOOPFILTER = 1 << 3,
+} SKIP_APPLY_POSTPROC_FILTER;
 
 /*!
  * \brief Encoder config related to resize.
@@ -328,6 +331,20 @@ typedef struct {
    * enabled.
    */
   bool enable_angle_delta;
+  /*!
+   * Flag to indicate whether to automatically turn off several intral coding
+   * tools.
+   * This flag is only used when "--deltaq-mode=3" is true.
+   * When set to 1, the encoder will analyze the reconstruction quality
+   * as compared to the source image in the preprocessing pass.
+   * If the recontruction quality is considered high enough, we disable
+   * the following intra coding tools, for better encoding speed:
+   * "--enable_smooth_intra",
+   * "--enable_paeth_intra",
+   * "--enable_cfl_intra",
+   * "--enable_diagonal_intra".
+   */
+  bool auto_intra_tools_off;
 } IntraModeCfg;
 
 /*!
@@ -556,13 +573,13 @@ typedef struct {
   int drop_frames_water_mark;
   /*!
    * under_shoot_pct indicates the tolerance of the VBR algorithm to
-   * undershoot and is used as a trigger threshold for more agressive
+   * undershoot and is used as a trigger threshold for more aggressive
    * adaptation of Q. It's value can range from 0-100.
    */
   int under_shoot_pct;
   /*!
    * over_shoot_pct indicates the tolerance of the VBR algorithm to overshoot
-   * and is used as a trigger threshold for more agressive adaptation of Q.
+   * and is used as a trigger threshold for more aggressive adaptation of Q.
    * It's value can range from 0-1000.
    */
   int over_shoot_pct;
@@ -743,6 +760,8 @@ typedef struct {
   aom_tune_content content;
   // Indicates the film grain parameters.
   int film_grain_test_vector;
+  // Indicates the in-block distortion metric to use.
+  aom_dist_metric dist_metric;
 } TuneCfg;
 
 typedef struct {
@@ -759,10 +778,6 @@ typedef struct {
 } InputCfg;
 
 typedef struct {
-  // List of QP offsets for: keyframe, ALTREF, and 3 levels of internal ARFs.
-  // If any of these values are negative, fixed offsets are disabled.
-  // Uses internal q range.
-  double fixed_qp_offsets[FIXED_QP_OFFSET_COUNT];
   // If true, encoder will use fixed QP offsets, that are either:
   // - Given by the user, and stored in 'fixed_qp_offsets' array, OR
   // - Picked automatically from cq_level.
@@ -846,6 +861,12 @@ typedef struct {
    * 3: Loop filter is disables for the frames with low motion
    */
   LOOPFILTER_CONTROL loopfilter_control;
+
+  /*!
+   * Indicates if the application of post-processing filters should be skipped
+   * on reconstructed frame.
+   */
+  bool skip_postproc_filtering;
 } AlgoCfg;
 /*!\cond */
 
@@ -1034,6 +1055,9 @@ typedef struct AV1EncoderConfig {
   // Indicates if row-based multi-threading should be enabled or not.
   bool row_mt;
 
+  // Indicates if frame parallel multi-threading should be enabled or not.
+  bool fp_mt;
+
   // Indicates if 16bit frame buffers are to be used i.e., the content is >
   // 8-bit.
   bool use_highbitdepth;
@@ -1046,6 +1070,15 @@ typedef struct AV1EncoderConfig {
   // The path for partition stats reading and writing, used in the experiment
   // CONFIG_PARTITION_SEARCH_ORDER.
   const char *partition_info_path;
+
+  // Exit the encoder when it fails to encode to a given level.
+  int strict_level_conformance;
+
+  // Max depth for the GOP after a key frame
+  int kf_max_pyr_height;
+
+  // A flag to control if we enable the superblock qp sweep for a given lambda
+  int sb_qp_sweep;
   /*!\endcond */
 } AV1EncoderConfig;
 
@@ -1342,16 +1375,24 @@ typedef struct {
 #endif  // CONFIG_MULTITHREAD
   /*!
    * Buffer to store the superblock whose encoding is complete.
-   * cur_col[i] stores the number of superblocks which finished encoding in the
-   * ith superblock row.
+   * num_finished_cols[i] stores the number of superblocks which finished
+   * encoding in the ith superblock row.
    */
   int *num_finished_cols;
   /*!
-   * Number of extra superblocks of the top row to be complete for encoding
-   * of the current superblock to start. A value of 1 indicates top-right
-   * dependency.
+   * Denotes the superblock interval at which conditional signalling should
+   * happen. Also denotes the minimum number of extra superblocks of the top row
+   * to be complete to start encoding the current superblock. A value of 1
+   * indicates top-right dependency.
    */
   int sync_range;
+  /*!
+   * Denotes the additional number of superblocks in the previous row to be
+   * complete to start encoding the current superblock when intraBC tool is
+   * enabled. This additional top-right delay is required to satisfy the
+   * hardware constraints for intraBC tool when row multithreading is enabled.
+   */
+  int intrabc_extra_top_right_sb_delay;
   /*!
    * Number of superblock rows.
    */
@@ -1387,6 +1428,7 @@ typedef struct RD_COUNTS {
   int obmc_used[BLOCK_SIZES_ALL][2];
   int warped_used[2];
   int newmv_or_intra_blocks;
+  uint64_t seg_tmp_pred_cost[2];
 } RD_COUNTS;
 
 typedef struct ThreadData {
@@ -1418,6 +1460,13 @@ typedef struct ThreadData {
   // pixel in a superblock. The buffer constitutes of MAX_SB_SQUARE pixel level
   // structures for each of the plane types (PLANE_TYPE_Y and PLANE_TYPE_UV).
   PixelLevelGradientInfo *pixel_gradient_info;
+  // Pointer to the array of structures to store source variance information of
+  // each 4x4 sub-block in a superblock. Block4x4VarInfo structure is used to
+  // store source variance and log of source variance of each 4x4 sub-block
+  // for subsequent retrieval.
+  Block4x4VarInfo *src_var_info_of_4x4_sub_blocks;
+  // The pc tree root for RTC non-rd case.
+  PC_TREE *rt_pc_root;
 } ThreadData;
 
 struct EncWorkerData;
@@ -1456,11 +1505,27 @@ typedef struct {
    */
   int thread_id_to_tile_id[MAX_NUM_THREADS];
 
+  /*!
+   * num_tile_cols_done[i] indicates the number of tile columns whose encoding
+   * is complete in the ith superblock row.
+   */
+  int *num_tile_cols_done;
+
+  /*!
+   * Number of superblock rows in a frame for which 'num_tile_cols_done' is
+   * allocated.
+   */
+  int allocated_sb_rows;
+
 #if CONFIG_MULTITHREAD
   /*!
    * Mutex lock used while dispatching jobs.
    */
   pthread_mutex_t *mutex_;
+  /*!
+   *  Condition variable used to dispatch loopfilter jobs.
+   */
+  pthread_cond_t *cond_;
 #endif
 
   /**
@@ -1478,15 +1543,15 @@ typedef struct {
   /**@}*/
 } AV1EncRowMultiThreadInfo;
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
-/*!
- * \brief Max number of frames that can be encoded in a parallel encode set.
- */
-#define MAX_PARALLEL_FRAMES 4
 /*!
  * \brief Max number of recodes used to track the frame probabilities.
  */
 #define NUM_RECODES_PER_FRAME 10
+
+/*!
+ * \brief Max number of frames that can be encoded in a parallel encode set.
+ */
+#define MAX_PARALLEL_FRAMES 4
 
 /*!
  * \brief Buffers to be backed up during parallel encode set to be restored
@@ -1513,7 +1578,6 @@ typedef struct RestoreStateBuffers {
    */
   RestorationLineBuffers *rlbs;
 } RestoreStateBuffers;
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
 
 /*!
  * \brief Primary Encoder parameters related to multi-threading.
@@ -1545,7 +1609,6 @@ typedef struct PrimaryMultiThreadInfo {
    */
   AV1CdefWorkerData *cdef_worker;
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
   /*!
    * Primary(Level 1) Synchronization object used to launch job in the worker
    * thread.
@@ -1556,7 +1619,6 @@ typedef struct PrimaryMultiThreadInfo {
    * Number of primary workers created for multi-threading.
    */
   int p_num_workers;
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
 } PrimaryMultiThreadInfo;
 
 /*!
@@ -1589,6 +1651,11 @@ typedef struct MultiThreadInfo {
    * enabled.
    */
   bool row_mt_enabled;
+
+  /*!
+   * When set, indicates that multi-threading for bitstream packing is enabled.
+   */
+  bool pack_bs_mt_enabled;
 
   /*!
    * Encoder row multi-threading data.
@@ -1635,12 +1702,16 @@ typedef struct MultiThreadInfo {
    */
   AV1CdefWorkerData *cdef_worker;
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
   /*!
    * Buffers to be stored/restored before/after parallel encode.
    */
   RestoreStateBuffers restore_state_buf;
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
+
+  /*!
+   * In multi-threaded realtime encoding with row-mt enabled, pipeline
+   * loop-filtering after encoding.
+   */
+  int pipeline_lpf_mt_with_enc;
 } MultiThreadInfo;
 
 /*!\cond */
@@ -1753,6 +1824,7 @@ enum {
 
   rd_pick_partition_time,
   rd_use_partition_time,
+  choose_var_based_partitioning_time,
   av1_prune_partitions_time,
   none_partition_search_time,
   split_partition_search_time,
@@ -1776,6 +1848,13 @@ enum {
   compound_type_rd_time,
   interpolation_filter_search_time,
   motion_mode_rd_time,
+
+  nonrd_use_partition_time,
+  pick_sb_modes_nonrd_time,
+  hybrid_intra_mode_search_time,
+  nonrd_pick_inter_mode_sb_time,
+  encode_b_nonrd_time,
+
   kTimingComponents,
 } UENUM1BYTE(TIMING_COMPONENT);
 
@@ -1805,6 +1884,8 @@ static INLINE char const *get_component_name(int index) {
 
     case rd_pick_partition_time: return "rd_pick_partition_time";
     case rd_use_partition_time: return "rd_use_partition_time";
+    case choose_var_based_partitioning_time:
+      return "choose_var_based_partitioning_time";
     case av1_prune_partitions_time: return "av1_prune_partitions_time";
     case none_partition_search_time: return "none_partition_search_time";
     case split_partition_search_time: return "split_partition_search_time";
@@ -1834,6 +1915,13 @@ static INLINE char const *get_component_name(int index) {
     case interpolation_filter_search_time:
       return "interpolation_filter_search_time";
     case motion_mode_rd_time: return "motion_mode_rd_time";
+
+    case nonrd_use_partition_time: return "nonrd_use_partition_time";
+    case pick_sb_modes_nonrd_time: return "pick_sb_modes_nonrd_time";
+    case hybrid_intra_mode_search_time: return "hybrid_intra_mode_search_time";
+    case nonrd_pick_inter_mode_sb_time: return "nonrd_pick_inter_mode_sb_time";
+    case encode_b_nonrd_time: return "encode_b_nonrd_time";
+
     default: assert(0);
   }
   return "error";
@@ -2049,7 +2137,7 @@ typedef struct {
 
   /*!
    * Threshold to approximate pixel domain distortion with transform domain
-   * distortion. This is only used if use_txform_domain_distortion is on.
+   * distortion. This is only used if use_transform_domain_distortion is on.
    * Corresponds to enable_winner_mode_for_use_tx_domain_dist speed feature.
    */
   unsigned int tx_domain_dist_threshold[MODE_EVAL_TYPES];
@@ -2136,15 +2224,6 @@ typedef struct {
 } ExternalFlags;
 
 /*!\cond */
-
-typedef struct {
-  int arf_stack[FRAME_BUFFERS];
-  int arf_stack_size;
-  int lst_stack[FRAME_BUFFERS];
-  int lst_stack_size;
-  int gld_stack[FRAME_BUFFERS];
-  int gld_stack_size;
-} RefBufferStack;
 
 typedef struct {
   // Some misc info
@@ -2270,6 +2349,65 @@ typedef struct {
   uint8_t *entropy_ctx;
 } CoeffBufferPool;
 
+#if !CONFIG_REALTIME_ONLY
+/*!\cond */
+// DUCKY_ENCODE_FRAME_MODE is c version of EncodeFrameMode
+enum {
+  DUCKY_ENCODE_FRAME_MODE_NONE,  // Let native AV1 determine q index and rdmult
+  DUCKY_ENCODE_FRAME_MODE_QINDEX,  // DuckyEncode determines q index and AV1
+                                   // determines rdmult
+  DUCKY_ENCODE_FRAME_MODE_QINDEX_RDMULT,  // DuckyEncode determines q index and
+                                          // rdmult
+} UENUM1BYTE(DUCKY_ENCODE_FRAME_MODE);
+
+enum {
+  DUCKY_ENCODE_GOP_MODE_NONE,  // native AV1 decides GOP
+  DUCKY_ENCODE_GOP_MODE_RCL,   // rate control lib decides GOP
+} UENUM1BYTE(DUCKY_ENCODE_GOP_MODE);
+
+typedef struct DuckyEncodeFrameInfo {
+  DUCKY_ENCODE_FRAME_MODE qp_mode;
+  DUCKY_ENCODE_GOP_MODE gop_mode;
+  int q_index;
+  int rdmult;
+  // These two arrays are equivalent to std::vector<SuperblockEncodeParameters>
+  int *superblock_encode_qindex;
+  int *superblock_encode_rdmult;
+  int delta_q_enabled;
+} DuckyEncodeFrameInfo;
+
+typedef struct DuckyEncodeFrameResult {
+  int global_order_idx;
+  int q_index;
+  int rdmult;
+  int rate;
+  int64_t dist;
+  double psnr;
+} DuckyEncodeFrameResult;
+
+typedef struct DuckyEncodeInfo {
+  DuckyEncodeFrameInfo frame_info;
+  DuckyEncodeFrameResult frame_result;
+} DuckyEncodeInfo;
+/*!\endcond */
+#endif
+
+/*!\cond */
+typedef struct RTC_REF {
+  /*!
+   * LAST_FRAME (0), LAST2_FRAME(1), LAST3_FRAME(2), GOLDEN_FRAME(3),
+   * BWDREF_FRAME(4), ALTREF2_FRAME(5), ALTREF_FRAME(6).
+   */
+  int reference[INTER_REFS_PER_FRAME];
+  int ref_idx[INTER_REFS_PER_FRAME];
+  int refresh[REF_FRAMES];
+  int set_ref_frame_config;
+  int non_reference_frame;
+  int ref_frame_comp[3];
+  int gld_idx_1layer;
+} RTC_REF;
+/*!\endcond */
+
 /*!
  * \brief Structure to hold data corresponding to an encoded frame.
  */
@@ -2318,50 +2456,27 @@ typedef struct AV1_COMP_DATA {
    * Decide to pop the source for this frame from input buffer queue.
    */
   int pop_lookahead;
-#if CONFIG_FRAME_PARALLEL_ENCODE
+
   /*!
    * Display order hint of frame whose packed data is in cx_data buffer.
    */
   int frame_display_order_hint;
-#endif
 } AV1_COMP_DATA;
 
 /*!
  * \brief Top level primary encoder structure
  */
 typedef struct AV1_PRIMARY {
-#if CONFIG_FRAME_PARALLEL_ENCODE
   /*!
    * Array of frame level encoder stage top level structures
    */
   struct AV1_COMP *parallel_cpi[MAX_PARALLEL_FRAMES];
 
   /*!
-   * Number of frame level contexts(cpis)
-   */
-  int num_fp_contexts;
-
-  /*!
    * Array of structures to hold data of frames encoded in a given parallel
    * encode set.
    */
   struct AV1_COMP_DATA parallel_frames_data[MAX_PARALLEL_FRAMES - 1];
-
-  /*!
-   * Loopfilter levels of the previous encoded frame.
-   */
-  int filter_level[2];
-
-  /*!
-   * Chrominance component loopfilter level of the previous encoded frame.
-   */
-  int filter_level_u;
-
-  /*!
-   * Chrominance component loopfilter level of the previous encoded frame.
-   */
-  int filter_level_v;
-
 #if CONFIG_FPMT_TEST
   /*!
    * Flag which enables/disables simulation path for fpmt unit test.
@@ -2387,7 +2502,13 @@ typedef struct AV1_PRIMARY {
    * model across frames.
    */
   int temp_valid_gm_model_found[FRAME_UPDATE_TYPES];
-#endif
+#endif  // CONFIG_FPMT_TEST
+  /*!
+   * Copy of cm->ref_frame_map maintained to facilitate sequential update of
+   * ref_frame_map by lower layer depth frames encoded ahead of time in a
+   * parallel encode set.
+   */
+  RefCntBuffer *ref_frame_map_copy[REF_FRAMES];
 
   /*!
    * Start time stamp of the last encoded show frame
@@ -2398,19 +2519,30 @@ typedef struct AV1_PRIMARY {
    * End time stamp of the last encoded show frame
    */
   int64_t ts_end_last_show_frame;
-#if CONFIG_FRAME_PARALLEL_ENCODE_2
+
   /*!
-   * Copy of cm->ref_frame_map maintained to facilitate sequential update of
-   * ref_frame_map by lower layer depth frames encoded ahead of time in a
-   * parallel encode set.
+   * Number of frame level contexts(cpis)
    */
-  RefCntBuffer *ref_frame_map_copy[REF_FRAMES];
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE_2
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
+  int num_fp_contexts;
+
+  /*!
+   * Loopfilter levels of the previous encoded frame.
+   */
+  int filter_level[2];
+
+  /*!
+   * Chrominance component loopfilter level of the previous encoded frame.
+   */
+  int filter_level_u;
+
+  /*!
+   * Chrominance component loopfilter level of the previous encoded frame.
+   */
+  int filter_level_v;
+
   /*!
    * Encode stage top level structure
-   * When CONFIG_FRAME_PARALLEL_ENCODE is enabled this is the same as
-   * parallel_cpi[0]
+   * During frame parallel encode, this is the same as parallel_cpi[0]
    */
   struct AV1_COMP *cpi;
 
@@ -2530,16 +2662,6 @@ typedef struct AV1_PRIMARY {
   aom_variance_fn_ptr_t fn_ptr[BLOCK_SIZES_ALL];
 
   /*!
-   * Scaling factors used in the RD multiplier modulation.
-   * TODO(sdeng): consider merge the following arrays.
-   * tpl_rdmult_scaling_factors is a temporary buffer used to store the
-   * intermediate scaling factors which are used in the calculation of
-   * tpl_sb_rdmult_scaling_factors. tpl_rdmult_scaling_factors[i] stores the
-   * intermediate scaling factor of the ith 16 x 16 block in raster scan order.
-   */
-  double *tpl_rdmult_scaling_factors;
-
-  /*!
    * tpl_sb_rdmult_scaling_factors[i] stores the RD multiplier scaling factor of
    * the ith 16 x 16 block in raster scan order.
    */
@@ -2624,6 +2746,11 @@ typedef struct AV1_PRIMARY {
    * found in the frame update type with enum value equal to i
    */
   int valid_gm_model_found[FRAME_UPDATE_TYPES];
+
+  /*!
+   * Struct for the reference structure for RTC.
+   */
+  RTC_REF rtc_ref;
 } AV1_PRIMARY;
 
 /*!
@@ -2729,9 +2856,25 @@ typedef struct AV1_COMP {
   YV12_BUFFER_CONFIG *unfiltered_source;
 
   /*!
+   * Frame buffer holding the orig source frame for PSNR calculation in rtc tf
+   * case.
+   */
+  YV12_BUFFER_CONFIG orig_source;
+
+  /*!
    * Skip tpl setup when tpl data from gop length decision can be reused.
    */
   int skip_tpl_setup_stats;
+
+  /*!
+   * Scaling factors used in the RD multiplier modulation.
+   * TODO(sdeng): consider merge the following arrays.
+   * tpl_rdmult_scaling_factors is a temporary buffer used to store the
+   * intermediate scaling factors which are used in the calculation of
+   * tpl_sb_rdmult_scaling_factors. tpl_rdmult_scaling_factors[i] stores the
+   * intermediate scaling factor of the ith 16 x 16 block in raster scan order.
+   */
+  double *tpl_rdmult_scaling_factors;
 
   /*!
    * Temporal filter context.
@@ -2758,6 +2901,11 @@ typedef struct AV1_COMP {
    * Refresh frame flags for golden, bwd-ref and alt-ref frames.
    */
   RefreshFrameInfo refresh_frame;
+
+  /*!
+   * Flag to reduce the number of reference frame buffers used in rt.
+   */
+  int rt_reduce_num_ref_buffers;
 
   /*!
    * Flags signalled by the external interface at frame level.
@@ -2863,11 +3011,6 @@ typedef struct AV1_COMP {
    */
   unsigned char gf_frame_index;
 
-  /*!
-   * To control the reference frame buffer and selection.
-   */
-  RefBufferStack ref_buffer_stack;
-
 #if CONFIG_INTERNAL_STATS
   /*!\cond */
   uint64_t time_compress_data;
@@ -2944,7 +3087,6 @@ typedef struct AV1_COMP {
    */
   VarBasedPartitionInfo vbp_info;
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
   /*!
    * Number of recodes in the frame.
    */
@@ -2975,10 +3117,6 @@ typedef struct AV1_COMP {
    */
   int do_update_frame_probs_interpfilter[NUM_RECODES_PER_FRAME];
 
-  /*!
-   * Retain condition for fast_extra_bits calculation.
-   */
-  int do_update_vbr_bits_off_target_fast;
 #if CONFIG_FPMT_TEST
   /*!
    * Temporary variable for simulation.
@@ -2992,7 +3130,12 @@ typedef struct AV1_COMP {
    * post encode updates for parallel frames.
    */
   double new_framerate;
-#endif
+
+  /*!
+   * Retain condition for fast_extra_bits calculation.
+   */
+  int do_update_vbr_bits_off_target_fast;
+
   /*!
    * Multi-threading parameters.
    */
@@ -3187,20 +3330,11 @@ typedef struct AV1_COMP {
    */
   ExtPartController ext_part_controller;
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
-  /*!
-   * A flag to indicate frames that will update their data to the primary
-   * context at the end of the encode. It is set for non-parallel frames and the
-   * last frame in encode order in a given parallel encode set.
-   */
-  bool do_frame_data_update;
-
   /*!
    * Motion vector stats of the current encoded frame, used to update the
    * ppi->mv_stats during postencode.
    */
   MV_STATS mv_stats;
-#if CONFIG_FRAME_PARALLEL_ENCODE_2
   /*!
    * Stores the reference refresh index for the current frame.
    */
@@ -3226,9 +3360,15 @@ typedef struct AV1_COMP {
    */
 
   int wanted_fb;
-#endif
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE_2
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
+#endif  // CONFIG_FPMT_TEST
+
+  /*!
+   * A flag to indicate frames that will update their data to the primary
+   * context at the end of the encode. It is set for non-parallel frames and the
+   * last frame in encode order in a given parallel encode set.
+   */
+  bool do_frame_data_update;
+
 #if CONFIG_RD_COMMAND
   /*!
    *  A structure for assigning external q_index / rdmult for experiments
@@ -3268,6 +3408,13 @@ typedef struct AV1_COMP {
   VBR_RATECTRL_INFO vbr_rc_info;
 #endif
 
+#if CONFIG_RATECTRL_LOG
+  /*!
+   * Structure stores information of rate control decisions.
+   */
+  RATECTRL_LOG rc_log;
+#endif  // CONFIG_RATECTRL_LOG
+
   /*!
    * Frame level twopass status and control data
    */
@@ -3282,6 +3429,39 @@ typedef struct AV1_COMP {
    * File pointer to second pass log
    */
   FILE *second_pass_log_stream;
+
+  /*!
+   * Buffer to store 64x64 SAD
+   */
+  uint64_t *src_sad_blk_64x64;
+
+  /*!
+   * SSE between the current frame and the reconstructed last frame
+   */
+  uint64_t rec_sse;
+
+  /*!
+   * A flag to indicate whether the encoder is controlled by DuckyEncode or not.
+   * 1:yes 0:no
+   */
+  int use_ducky_encode;
+
+#if !CONFIG_REALTIME_ONLY
+  /*! A structure that facilitates the communication between DuckyEncode and AV1
+   * encoder.
+   */
+  DuckyEncodeInfo ducky_encode_info;
+#endif  // CONFIG_REALTIME_ONLY
+        //
+  /*!
+   * Frames since last frame with cdf update.
+   */
+  int frames_since_last_update;
+
+  /*!
+   * Block level thresholds to force zeromv-skip at partition level.
+   */
+  unsigned int zeromv_skip_thresh_exit_part[BLOCK_SIZES_ALL];
 } AV1_COMP;
 
 /*!
@@ -3356,17 +3536,17 @@ typedef struct {
   size_t size;  // Size of resulting bitstream
 } EncodeFrameResults;
 
-// Must not be called more than once.
-void av1_initialize_enc(void);
+void av1_initialize_enc(unsigned int usage, enum aom_rc_mode end_usage);
 
-struct AV1_COMP *av1_create_compressor(AV1_PRIMARY *ppi, AV1EncoderConfig *oxcf,
+struct AV1_COMP *av1_create_compressor(AV1_PRIMARY *ppi,
+                                       const AV1EncoderConfig *oxcf,
                                        BufferPool *const pool,
                                        COMPRESSOR_STAGE stage,
                                        int lap_lag_in_frames);
 
 struct AV1_PRIMARY *av1_create_primary_compressor(
     struct aom_codec_pkt_list *pkt_list_head, int num_lap_buffers,
-    AV1EncoderConfig *oxcf);
+    const AV1EncoderConfig *oxcf);
 
 void av1_remove_compressor(AV1_COMP *cpi);
 
@@ -3394,7 +3574,6 @@ void av1_init_seq_coding_tools(AV1_PRIMARY *const ppi,
 void av1_post_encode_updates(AV1_COMP *const cpi,
                              const AV1_COMP_DATA *const cpi_data);
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
 void av1_scale_references_fpmt(AV1_COMP *cpi, int *ref_buffers_used_map);
 
 void av1_increment_scaled_ref_counts_fpmt(BufferPool *buffer_pool,
@@ -3413,8 +3592,6 @@ AV1_COMP *av1_get_parallel_frame_enc_data(AV1_PRIMARY *const ppi,
 int av1_init_parallel_frame_context(const AV1_COMP_DATA *const first_cpi_data,
                                     AV1_PRIMARY *const ppi,
                                     int *ref_buffers_used_map);
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
-
 /*!\endcond */
 
 /*!\brief Obtain the raw frame data
@@ -3488,13 +3665,16 @@ int av1_set_size_literal(AV1_COMP *cpi, int width, int height);
 
 void av1_set_frame_size(AV1_COMP *cpi, int width, int height);
 
+void av1_set_mv_search_params(AV1_COMP *cpi);
+
 int av1_set_active_map(AV1_COMP *cpi, unsigned char *map, int rows, int cols);
 
 int av1_get_active_map(AV1_COMP *cpi, unsigned char *map, int rows, int cols);
 
 int av1_set_internal_size(AV1EncoderConfig *const oxcf,
                           ResizePendingParams *resize_pending_params,
-                          AOM_SCALING horiz_mode, AOM_SCALING vert_mode);
+                          AOM_SCALING_MODE horiz_mode,
+                          AOM_SCALING_MODE vert_mode);
 
 int av1_get_quantizer(struct AV1_COMP *cpi);
 
@@ -3516,7 +3696,6 @@ void av1_set_screen_content_options(struct AV1_COMP *cpi,
 
 void av1_update_frame_size(AV1_COMP *cpi);
 
-#if CONFIG_FRAME_PARALLEL_ENCODE
 typedef struct {
   int pyr_level;
   int disp_order;
@@ -3581,38 +3760,6 @@ static AOM_INLINE void calc_frame_data_update_flag(
   }
 }
 #endif
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
-
-// TODO(jingning): Move these functions as primitive members for the new cpi
-// class.
-static INLINE void stack_push(int *stack, int *stack_size, int item) {
-  for (int i = *stack_size - 1; i >= 0; --i) stack[i + 1] = stack[i];
-  stack[0] = item;
-  ++*stack_size;
-}
-
-static INLINE int stack_pop(int *stack, int *stack_size) {
-  if (*stack_size <= 0) return -1;
-
-  int item = stack[0];
-  for (int i = 0; i < *stack_size; ++i) stack[i] = stack[i + 1];
-  --*stack_size;
-
-  return item;
-}
-
-static INLINE int stack_pop_end(int *stack, int *stack_size) {
-  int item = stack[*stack_size - 1];
-  stack[*stack_size - 1] = -1;
-  --*stack_size;
-
-  return item;
-}
-
-static INLINE void stack_reset(int *stack, int *stack_size) {
-  for (int i = 0; i < *stack_size; ++i) stack[i] = INVALID_IDX;
-  *stack_size = 0;
-}
 
 // av1 uses 10,000,000 ticks/second as time stamp
 #define TICKS_PER_SEC 10000000LL
@@ -3660,10 +3807,12 @@ static INLINE void alloc_frame_mvs(AV1_COMMON *const cm, RefCntBuffer *buf) {
 
 // Get the allocated token size for a tile. It does the same calculation as in
 // the frame token allocation.
-static INLINE unsigned int allocated_tokens(TileInfo tile, int sb_size_log2,
-                                            int num_planes) {
-  int tile_mb_rows = (tile.mi_row_end - tile.mi_row_start + 2) >> 2;
-  int tile_mb_cols = (tile.mi_col_end - tile.mi_col_start + 2) >> 2;
+static INLINE unsigned int allocated_tokens(const TileInfo *tile,
+                                            int sb_size_log2, int num_planes) {
+  int tile_mb_rows =
+      ROUND_POWER_OF_TWO(tile->mi_row_end - tile->mi_row_start, 2);
+  int tile_mb_cols =
+      ROUND_POWER_OF_TWO(tile->mi_col_end - tile->mi_col_start, 2);
 
   return get_token_alloc(tile_mb_rows, tile_mb_cols, sb_size_log2, num_planes);
 }
@@ -3720,6 +3869,12 @@ static INLINE int is_stat_consumption_stage(const AV1_COMP *const cpi) {
            (cpi->compressor_stage == ENCODE_STAGE) && cpi->ppi->lap_enabled));
 }
 
+// Decide whether 'dv_costs' need to be allocated/stored during the encoding.
+static AOM_INLINE bool av1_need_dv_costs(const AV1_COMP *const cpi) {
+  return !cpi->sf.rt_sf.use_nonrd_pick_mode &&
+         av1_allow_intrabc(&cpi->common) && !is_stat_generation_stage(cpi);
+}
+
 /*!\endcond */
 /*!\brief Check if the current stage has statistics
  *
@@ -3740,6 +3895,13 @@ static INLINE int has_no_stats_stage(const AV1_COMP *const cpi) {
 static INLINE int is_one_pass_rt_params(const AV1_COMP *cpi) {
   return has_no_stats_stage(cpi) && cpi->oxcf.mode == REALTIME &&
          cpi->oxcf.gf_cfg.lag_in_frames == 0;
+}
+
+// Use default/internal reference structure for single-layer RTC.
+static INLINE int use_rtc_reference_structure_one_layer(const AV1_COMP *cpi) {
+  return is_one_pass_rt_params(cpi) && cpi->ppi->number_spatial_layers == 1 &&
+         cpi->ppi->number_temporal_layers == 1 &&
+         !cpi->ppi->rtc_ref.set_ref_frame_config;
 }
 
 // Function return size of frame stats buffer
@@ -3788,12 +3950,12 @@ void av1_setup_frame_size(AV1_COMP *cpi);
 
 // Returns 1 if a frame is scaled and 0 otherwise.
 static INLINE int av1_resize_scaled(const AV1_COMMON *cm) {
-  return !(cm->superres_upscaled_width == cm->render_width &&
-           cm->superres_upscaled_height == cm->render_height);
+  return cm->superres_upscaled_width != cm->render_width ||
+         cm->superres_upscaled_height != cm->render_height;
 }
 
 static INLINE int av1_frame_scaled(const AV1_COMMON *cm) {
-  return !av1_superres_scaled(cm) && av1_resize_scaled(cm);
+  return av1_superres_scaled(cm) || av1_resize_scaled(cm);
 }
 
 // Don't allow a show_existing_frame to coincide with an error resilient
@@ -3862,7 +4024,7 @@ static const MV_REFERENCE_FRAME disable_order[] = {
   LAST3_FRAME,
   LAST2_FRAME,
   ALTREF2_FRAME,
-  GOLDEN_FRAME,
+  BWDREF_FRAME,
 };
 
 static const MV_REFERENCE_FRAME
@@ -3891,7 +4053,11 @@ static INLINE int get_ref_frame_flags(const SPEED_FEATURES *const sf,
             ? (1 + sf->rt_sf.use_nonrd_altref_frame)
             : i;
     for (int j = 0; j < index; ++j) {
-      if (this_ref == ref_frames[j]) {
+      // If this_ref has appeared before (same as the reference corresponding
+      // to lower index j), remove it as a reference only if that reference
+      // (for index j) is actually used as a reference.
+      if (this_ref == ref_frames[j] &&
+          (flags & (1 << (ref_frame_priority_order[j] - 1)))) {
         flags &= ~(1 << (ref_frame_priority_order[i] - 1));
         break;
       }
@@ -3946,18 +4112,107 @@ static AOM_INLINE int is_psnr_calc_enabled(const AV1_COMP *cpi) {
          cm->show_frame;
 }
 
-static INLINE int is_frame_resize_pending(AV1_COMP *const cpi) {
-  ResizePendingParams *const resize_pending_params =
+static INLINE int is_frame_resize_pending(const AV1_COMP *const cpi) {
+  const ResizePendingParams *const resize_pending_params =
       &cpi->resize_pending_params;
   return (resize_pending_params->width && resize_pending_params->height &&
           (cpi->common.width != resize_pending_params->width ||
            cpi->common.height != resize_pending_params->height));
 }
 
+// Check if loop filter is used.
+static INLINE int is_loopfilter_used(const AV1_COMMON *const cm) {
+  return !cm->features.coded_lossless && !cm->tiles.large_scale;
+}
+
+// Check if CDEF is used.
+static INLINE int is_cdef_used(const AV1_COMMON *const cm) {
+  return cm->seq_params->enable_cdef && !cm->features.coded_lossless &&
+         !cm->tiles.large_scale;
+}
+
 // Check if loop restoration filter is used.
 static INLINE int is_restoration_used(const AV1_COMMON *const cm) {
   return cm->seq_params->enable_restoration && !cm->features.all_lossless &&
          !cm->tiles.large_scale;
+}
+
+// Checks if post-processing filters need to be applied.
+// NOTE: This function decides if the application of different post-processing
+// filters on the reconstructed frame can be skipped at the encoder side.
+// However the computation of different filter parameters that are signaled in
+// the bitstream is still required.
+static INLINE unsigned int derive_skip_apply_postproc_filters(
+    const AV1_COMP *cpi, int use_loopfilter, int use_cdef, int use_superres,
+    int use_restoration) {
+  // Though CDEF parameter selection should be dependent on
+  // deblocked/loop-filtered pixels for cdef_pick_method <=
+  // CDEF_FAST_SEARCH_LVL5, CDEF strength values are calculated based on the
+  // pixel values that are not loop-filtered in svc real-time encoding mode.
+  // Hence this case is handled separately using the condition below.
+  if (cpi->ppi->rtc_ref.non_reference_frame)
+    return (SKIP_APPLY_LOOPFILTER | SKIP_APPLY_CDEF);
+
+  if (!cpi->oxcf.algo_cfg.skip_postproc_filtering || cpi->ppi->b_calculate_psnr)
+    return 0;
+  assert(cpi->oxcf.mode == ALLINTRA);
+
+  // The post-processing filters are applied one after the other in the
+  // following order: deblocking->cdef->superres->restoration. In case of
+  // ALLINTRA encoding, the reconstructed frame is not used as a reference
+  // frame. Hence, the application of these filters can be skipped when
+  // 1. filter parameters of the subsequent stages are not dependent on the
+  // filtered output of the current stage or
+  // 2. subsequent filtering stages are disabled
+  if (use_restoration) return SKIP_APPLY_RESTORATION;
+  if (use_superres) return SKIP_APPLY_SUPERRES;
+  if (use_cdef) {
+    // CDEF parameter selection is not dependent on the deblocked frame if
+    // cdef_pick_method is CDEF_PICK_FROM_Q. Hence the application of deblocking
+    // filters and cdef filters can be skipped in this case.
+    return (cpi->sf.lpf_sf.cdef_pick_method == CDEF_PICK_FROM_Q &&
+            use_loopfilter)
+               ? (SKIP_APPLY_LOOPFILTER | SKIP_APPLY_CDEF)
+               : SKIP_APPLY_CDEF;
+  }
+  if (use_loopfilter) return SKIP_APPLY_LOOPFILTER;
+
+  return 0;  // All post-processing stages disabled.
+}
+
+static INLINE void set_postproc_filter_default_params(AV1_COMMON *cm) {
+  struct loopfilter *const lf = &cm->lf;
+  CdefInfo *const cdef_info = &cm->cdef_info;
+  RestorationInfo *const rst_info = cm->rst_info;
+
+  lf->filter_level[0] = 0;
+  lf->filter_level[1] = 0;
+  cdef_info->cdef_bits = 0;
+  cdef_info->cdef_strengths[0] = 0;
+  cdef_info->nb_cdef_strengths = 1;
+  cdef_info->cdef_uv_strengths[0] = 0;
+  rst_info[0].frame_restoration_type = RESTORE_NONE;
+  rst_info[1].frame_restoration_type = RESTORE_NONE;
+  rst_info[2].frame_restoration_type = RESTORE_NONE;
+}
+
+static INLINE int is_inter_tx_size_search_level_one(
+    const TX_SPEED_FEATURES *tx_sf) {
+  return (tx_sf->inter_tx_size_search_init_depth_rect >= 1 &&
+          tx_sf->inter_tx_size_search_init_depth_sqr >= 1);
+}
+
+static INLINE int get_lpf_opt_level(const SPEED_FEATURES *sf) {
+  int lpf_opt_level = 0;
+  if (is_inter_tx_size_search_level_one(&sf->tx_sf))
+    lpf_opt_level = (sf->lpf_sf.lpf_pick == LPF_PICK_FROM_Q) ? 2 : 1;
+  return lpf_opt_level;
+}
+
+// Enable switchable motion mode only if warp and OBMC tools are allowed
+static INLINE bool is_switchable_motion_mode_allowed(bool allow_warped_motion,
+                                                     bool enable_obmc) {
+  return (allow_warped_motion || enable_obmc);
 }
 
 #if CONFIG_AV1_TEMPORAL_DENOISING

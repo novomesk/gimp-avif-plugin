@@ -10,9 +10,11 @@
 #
 
 list(APPEND AOM_TEST_DATA_FILE_NAMES
+            "desktopqvga2.320_240.yuv"
             "desktop1.320_180.yuv"
             "hantro_collage_w176h144.yuv"
             "hantro_collage_w352h288.yuv"
+            "hantro_collage_w352h288_nv12.yuv"
             "hantro_odd.yuv"
             "paris_352_288_30.y4m"
             "park_joy_90p_10_420.y4m"
@@ -29,12 +31,15 @@ list(APPEND AOM_TEST_DATA_FILE_NAMES
             "park_joy_90p_8_444.y4m"
             "pixel_capture_w320h240.yuv"
             "desktop_credits.y4m"
+            "rand_noise_w1280h720.yuv"
             "niklas_1280_720_30.y4m"
             "rush_hour_444.y4m"
             "screendata.y4m"
             "niklas_640_480_30.yuv"
             "vase10x10.yuv"
-            "vase10x10_tiles.txt")
+            "vase10x10_tiles.txt"
+            "firstpass_stats"
+            "bus_352x288_420_f20_b8.yuv")
 
 if(ENABLE_DECODE_PERF_TESTS AND CONFIG_AV1_ENCODER)
   list(APPEND AOM_TEST_DATA_FILE_NAMES "niklas_1280_720_30.yuv")
@@ -300,6 +305,8 @@ if(CONFIG_AV1_DECODER)
               "av1-1-b10-00-quantizer-63.ivf.md5"
               "av1-1-b10-23-film_grain-50.ivf"
               "av1-1-b10-23-film_grain-50.ivf.md5"
+              "av1-1-b10-24-monochrome.ivf"
+              "av1-1-b10-24-monochrome.ivf.md5"
               "av1-1-b8-01-size-16x16.ivf"
               "av1-1-b8-01-size-16x16.ivf.md5"
               "av1-1-b8-01-size-16x18.ivf"
@@ -512,6 +519,8 @@ if(CONFIG_AV1_DECODER)
               "av1-1-b8-05-mv.ivf.md5"
               "av1-1-b8-06-mfmv.ivf"
               "av1-1-b8-06-mfmv.ivf.md5"
+              "av1-1-b8-16-intra_only-intrabc-extreme-dv.ivf"
+              "av1-1-b8-16-intra_only-intrabc-extreme-dv.ivf.md5"
               "av1-1-b8-22-svc-L2T1.ivf"
               "av1-1-b8-22-svc-L2T1.ivf.md5"
               "av1-1-b8-22-svc-L1T2.ivf"
@@ -520,6 +529,8 @@ if(CONFIG_AV1_DECODER)
               "av1-1-b8-22-svc-L2T2.ivf.md5"
               "av1-1-b8-23-film_grain-50.ivf"
               "av1-1-b8-23-film_grain-50.ivf.md5"
+              "av1-1-b8-24-monochrome.ivf"
+              "av1-1-b8-24-monochrome.ivf.md5"
               "invalid-bug-1814.ivf"
               "invalid-bug-1814.ivf.res"
               "invalid-chromium-906381.ivf"
@@ -541,7 +552,7 @@ if(CONFIG_AV1_DECODER)
               "invalid-oss-fuzz-10705.ivf"
               "invalid-oss-fuzz-10705.ivf.res"
               "invalid-oss-fuzz-10723.ivf"
-              "invalid-oss-fuzz-10723.ivf.res.2"
+              "invalid-oss-fuzz-10723.ivf.res.3"
               "invalid-oss-fuzz-10779.ivf"
               "invalid-oss-fuzz-10779.ivf.res"
               "invalid-oss-fuzz-11477.ivf"

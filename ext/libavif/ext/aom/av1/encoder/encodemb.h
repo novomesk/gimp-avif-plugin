@@ -56,7 +56,7 @@ struct encode_b_args {
   const struct AV1_COMP *cpi;
   MACROBLOCK *x;
   struct optimize_ctx *ctx;
-  int8_t *skip;
+  uint8_t *skip;
   ENTROPY_CONTEXT *ta;
   ENTROPY_CONTEXT *tl;
   RUN_TYPE dry_run;
@@ -86,13 +86,13 @@ void av1_xform_dc_only(MACROBLOCK *x, int plane, int block,
 
 void av1_xform_quant(MACROBLOCK *x, int plane, int block, int blk_row,
                      int blk_col, BLOCK_SIZE plane_bsize, TxfmParam *txfm_param,
-                     QUANT_PARAM *qparam);
+                     const QUANT_PARAM *qparam);
 
 void av1_xform(MACROBLOCK *x, int plane, int block, int blk_row, int blk_col,
                BLOCK_SIZE plane_bsize, TxfmParam *txfm_param);
 
 void av1_quant(MACROBLOCK *x, int plane, int block, TxfmParam *txfm_param,
-               QUANT_PARAM *qparam);
+               const QUANT_PARAM *qparam);
 
 int av1_optimize_b(const struct AV1_COMP *cpi, MACROBLOCK *mb, int plane,
                    int block, TX_SIZE tx_size, TX_TYPE tx_type,

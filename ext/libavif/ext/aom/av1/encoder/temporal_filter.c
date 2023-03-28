@@ -33,6 +33,8 @@
 #include "av1/encoder/firstpass.h"
 #include "av1/encoder/gop_structure.h"
 #include "av1/encoder/mcomp.h"
+#include "av1/encoder/motion_search_facade.h"
+#include "av1/encoder/pass2_strategy.h"
 #include "av1/encoder/ratectrl.h"
 #include "av1/encoder/reconinter_enc.h"
 #include "av1/encoder/segmentation.h"
@@ -79,7 +81,7 @@ static void tf_determine_block_partition(const MV block_mv, const int block_mse,
  * \param[out]  subblock_mses   Pointer to the search errors (MSE) for 4
  *                              sub-blocks
  *
- * \return Nothing will be returned. Results are saved in subblock_mvs and
+ * \remark Nothing will be returned. Results are saved in subblock_mvs and
  *         subblock_mses
  */
 static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
@@ -107,9 +109,6 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
   // Parameters used for motion search.
   FULLPEL_MOTION_SEARCH_PARAMS full_ms_params;
   SUBPEL_MOTION_SEARCH_PARAMS ms_params;
-  const SEARCH_METHODS search_method = NSTEP;
-  const search_site_config *search_site_cfg =
-      cpi->mv_search_params.search_site_cfg[SS_CFG_LOOKAHEAD];
   const int step_param = av1_init_search_range(
       AOMMAX(frame_to_filter->y_crop_width, frame_to_filter->y_crop_height));
   const SUBPEL_SEARCH_TYPE subpel_search_type = USE_8_TAPS;
@@ -129,6 +128,11 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
   mb->plane[0].src.stride = y_stride;
   mbd->plane[0].pre[0].buf = ref_frame->y_buffer + y_offset;
   mbd->plane[0].pre[0].stride = y_stride;
+
+  const SEARCH_METHODS search_method = NSTEP;
+  const search_site_config *search_site_cfg =
+      av1_get_search_site_config(cpi, mb, search_method);
+
   // Unused intermediate results for motion search.
   unsigned int sse, error;
   int distortion;
@@ -138,6 +142,7 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
   int_mv best_mv;  // Searched motion vector.
   int block_mse = INT_MAX;
   MV block_mv = kZeroMv;
+  const int q = av1_get_q(cpi);
 
   av1_make_default_fullpel_ms_params(&full_ms_params, cpi, mb, block_size,
                                      &baseline_mv, search_site_cfg,
@@ -145,6 +150,12 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
   av1_set_mv_search_method(&full_ms_params, search_site_cfg, search_method);
   full_ms_params.run_mesh_search = 1;
   full_ms_params.mv_cost_params.mv_cost_type = mv_cost_type;
+
+  if (cpi->sf.mv_sf.prune_mesh_search == PRUNE_MESH_SEARCH_LVL_1) {
+    // Enable prune_mesh_search based on q for PRUNE_MESH_SEARCH_LVL_1.
+    full_ms_params.prune_mesh_search = (q <= 20) ? 0 : 1;
+    full_ms_params.mesh_search_mv_diff_threshold = 2;
+  }
 
   av1_full_pixel_search(start_mv, &full_ms_params, step_param,
                         cond_cost_list(cpi, cost_list), &best_mv.as_fullmv,
@@ -178,7 +189,7 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
     block_mv = best_mv.as_mv;
     *ref_mv = best_mv.as_mv;
     // On 4 sub-blocks.
-    const BLOCK_SIZE subblock_size = ss_size_lookup[block_size][1][1];
+    const BLOCK_SIZE subblock_size = av1_ss_size_lookup[block_size][1][1];
     const int subblock_height = block_size_high[subblock_size];
     const int subblock_width = block_size_wide[subblock_size];
     const int subblock_pels = subblock_height * subblock_width;
@@ -198,6 +209,12 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
                                  search_method);
         full_ms_params.run_mesh_search = 1;
         full_ms_params.mv_cost_params.mv_cost_type = mv_cost_type;
+
+        if (cpi->sf.mv_sf.prune_mesh_search == PRUNE_MESH_SEARCH_LVL_1) {
+          // Enable prune_mesh_search based on q for PRUNE_MESH_SEARCH_LVL_1.
+          full_ms_params.prune_mesh_search = (q <= 20) ? 0 : 1;
+          full_ms_params.mesh_search_mv_diff_threshold = 2;
+        }
 
         av1_full_pixel_search(start_mv, &full_ms_params, step_param,
                               cond_cost_list(cpi, cost_list),
@@ -308,7 +325,7 @@ static INLINE int is_frame_high_bitdepth(const YV12_BUFFER_CONFIG *frame) {
  *                             order)
  * \param[out]  pred           Pointer to the predictor to be built
  *
- * \return Nothing returned, But the contents of `pred` will be modified
+ * \remark Nothing returned, But the contents of `pred` will be modified
  */
 static void tf_build_predictor(const YV12_BUFFER_CONFIG *ref_frame,
                                const MACROBLOCKD *mbd,
@@ -536,7 +553,7 @@ void compute_luma_sq_error_sum(uint32_t *square_diff, uint32_t *luma_sse_sum,
  * \param[out]  count           Pointer to the pixel-wise counter for
  *                              filtering
  *
- * \return Nothing returned, But the contents of `accum`, `pred` and 'count'
+ * \remark Nothing returned, But the contents of `accum`, `pred` and 'count'
  *         will be modified
  */
 void av1_apply_temporal_filter_c(
@@ -594,11 +611,20 @@ void av1_apply_temporal_filter_c(
   // Allocate memory for pixel-wise squared differences. They,
   // regardless of the subsampling, are assigned with memory of size `mb_pels`.
   uint32_t *square_diff = aom_memalign(16, mb_pels * sizeof(uint32_t));
+  if (!square_diff) {
+    aom_internal_error(mbd->error_info, AOM_CODEC_MEM_ERROR,
+                       "Error allocating temporal filter data");
+  }
   memset(square_diff, 0, mb_pels * sizeof(square_diff[0]));
 
   // Allocate memory for accumulated luma squared error. This value will be
   // consumed while filtering the chroma planes.
   uint32_t *luma_sse_sum = aom_memalign(32, mb_pels * sizeof(uint32_t));
+  if (!luma_sse_sum) {
+    aom_free(square_diff);
+    aom_internal_error(mbd->error_info, AOM_CODEC_MEM_ERROR,
+                       "Error allocating temporal filter data");
+  }
   memset(luma_sse_sum, 0, mb_pels * sizeof(luma_sse_sum[0]));
 
   // Get window size for pixel-wise filtering.
@@ -710,7 +736,7 @@ void av1_highbd_apply_temporal_filter_c(
  * \param[in]   count          Pointer to the pre-computed count
  * \param[out]  result_buffer  Pointer to result buffer
  *
- * \return Nothing returned, but the content to which `result_buffer` pointer
+ * \remark Nothing returned, but the content to which `result_buffer` pointer
  *         will be modified
  */
 static void tf_normalize_filtered_frame(
@@ -890,7 +916,7 @@ void av1_tf_do_filtering_row(AV1_COMP *cpi, ThreadData *td, int mb_row) {
  * \ingroup src_frame_proc
  * \param[in]   cpi                   Top level encoder instance structure
  *
- * \return Nothing will be returned, but the contents of td->diff will be
+ * \remark Nothing will be returned, but the contents of td->diff will be
  modified.
  */
 static void tf_do_filtering(AV1_COMP *cpi) {
@@ -914,13 +940,6 @@ static void tf_do_filtering(AV1_COMP *cpi) {
   tf_restore_state(mbd, input_mb_mode_info, input_buffer, num_planes);
 }
 
-int av1_calc_arf_boost(const TWO_PASS *twopass,
-                       const TWO_PASS_FRAME *twopass_frame,
-                       const PRIMARY_RATE_CONTROL *p_rc, FRAME_INFO *frame_info,
-                       int offset, int f_frames, int b_frames,
-                       int *num_fpstats_used, int *num_fpstats_required,
-                       int project_gfu_boost);
-
 /*!\brief Setups the frame buffer for temporal filtering. This fuction
  * determines how many frames will be used for temporal filtering and then
  * groups them into a buffer. This function will also estimate the noise level
@@ -932,7 +951,7 @@ int av1_calc_arf_boost(const TWO_PASS *twopass,
  *                              in the lookahead buffer cpi->lookahead
  * \param[in]   gf_frame_index  GOP index
  *
- * \return Nothing will be returned. But the fields `frames`, `num_frames`,
+ * \remark Nothing will be returned. But the fields `frames`, `num_frames`,
  *         `filter_frame_idx` and `noise_levels` will be updated in cpi->tf_ctx.
  */
 static void tf_setup_filtering_buffer(AV1_COMP *cpi,
@@ -1023,7 +1042,7 @@ static void tf_setup_filtering_buffer(AV1_COMP *cpi,
   num_frames = AOMMIN(num_frames + adjust_num, lookahead_depth);
 
   if (frame_type == KEY_FRAME) {
-    num_before = is_forward_keyframe ? num_frames / 2 : 0;
+    num_before = AOMMIN(is_forward_keyframe ? num_frames / 2 : 0, max_before);
     num_after = AOMMIN(num_frames - 1, max_after);
   } else {
     int gfu_boost = av1_calc_arf_boost(&cpi->ppi->twopass, &cpi->twopass_frame,
@@ -1033,6 +1052,11 @@ static void tf_setup_filtering_buffer(AV1_COMP *cpi,
 
     num_frames = AOMMIN(num_frames, gfu_boost / 150);
     num_frames += !(num_frames & 1);  // Make the number odd.
+
+    // Limit the number of frames if noise levels are low and high quantizers.
+    if (noise_levels[AOM_PLANE_Y] < 1.9 && cpi->ppi->p_rc.arf_q > 40)
+      num_frames = AOMMIN(num_frames, cpi->sf.hl_sf.num_frames_used_in_tf);
+
     // Only use 2 neighbours for the second ARF.
     if (update_type == INTNL_ARF_UPDATE) num_frames = AOMMIN(num_frames, 3);
     if (AOMMIN(max_after, max_before) >= num_frames / 2) {
@@ -1222,10 +1246,8 @@ void av1_temporal_filter(AV1_COMP *cpi, const int filter_frame_lookahead_idx,
   // TODO(anyone): Currently, we enforce the filtering strength on internal
   // ARFs except the second ARF to be zero. We should investigate in which case
   // it is more beneficial to use non-zero strength filtering.
-#if CONFIG_FRAME_PARALLEL_ENCODE
   // Only parallel level 0 frames go through temporal filtering.
   assert(cpi->ppi->gf_group.frame_parallel_level[gf_frame_index] == 0);
-#endif  // CONFIG_FRAME_PARALLEL_ENCODE
 
   // Initialize temporal filter context structure.
   init_tf_ctx(cpi, filter_frame_lookahead_idx, gf_frame_index,
@@ -1233,7 +1255,10 @@ void av1_temporal_filter(AV1_COMP *cpi, const int filter_frame_lookahead_idx,
 
   // Allocate and reset temporal filter buffers.
   const int is_highbitdepth = tf_ctx->is_highbitdepth;
-  tf_alloc_and_reset_data(tf_data, tf_ctx->num_pels, is_highbitdepth);
+  if (!tf_alloc_and_reset_data(tf_data, tf_ctx->num_pels, is_highbitdepth)) {
+    aom_internal_error(cpi->common.error, AOM_CODEC_MEM_ERROR,
+                       "Error allocating temporal filter data");
+  }
 
   // Perform temporal filtering process.
   if (mt_info->num_workers > 1)
@@ -1252,12 +1277,12 @@ int av1_is_temporal_filter_on(const AV1EncoderConfig *oxcf) {
   return oxcf->algo_cfg.arnr_max_frames > 0 && oxcf->gf_cfg.lag_in_frames > 1;
 }
 
-void av1_tf_info_alloc(TEMPORAL_FILTER_INFO *tf_info, AV1_COMP *cpi) {
+void av1_tf_info_alloc(TEMPORAL_FILTER_INFO *tf_info, const AV1_COMP *cpi) {
   const AV1EncoderConfig *oxcf = &cpi->oxcf;
   tf_info->is_temporal_filter_on = av1_is_temporal_filter_on(oxcf);
   if (tf_info->is_temporal_filter_on == 0) return;
 
-  AV1_COMMON *cm = &cpi->common;
+  const AV1_COMMON *cm = &cpi->common;
   const SequenceHeader *const seq_params = cm->seq_params;
   int ret;
   for (int i = 0; i < TF_INFO_BUF_COUNT; ++i) {
@@ -1266,22 +1291,11 @@ void av1_tf_info_alloc(TEMPORAL_FILTER_INFO *tf_info, AV1_COMP *cpi) {
         seq_params->subsampling_x, seq_params->subsampling_y,
         seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
         cm->features.byte_alignment, NULL, NULL, NULL,
-        cpi->oxcf.tool_cfg.enable_global_motion);
+        cpi->oxcf.tool_cfg.enable_global_motion, 0);
     if (ret) {
       aom_internal_error(cm->error, AOM_CODEC_MEM_ERROR,
                          "Failed to allocate tf_info");
     }
-  }
-
-  ret = aom_realloc_frame_buffer(
-      &tf_info->tf_buf_second_arf, oxcf->frm_dim_cfg.width,
-      oxcf->frm_dim_cfg.height, seq_params->subsampling_x,
-      seq_params->subsampling_y, seq_params->use_highbitdepth,
-      cpi->oxcf.border_in_pixels, cm->features.byte_alignment, NULL, NULL, NULL,
-      cpi->oxcf.tool_cfg.enable_global_motion);
-  if (ret) {
-    aom_internal_error(cm->error, AOM_CODEC_MEM_ERROR,
-                       "Failed to allocate tf_info");
   }
 }
 
@@ -1306,7 +1320,7 @@ void av1_tf_info_filtering(TEMPORAL_FILTER_INFO *tf_info, AV1_COMP *cpi,
   for (int gf_index = 0; gf_index < gf_group->size; ++gf_index) {
     int update_type = gf_group->update_type[gf_index];
     if (update_type == KF_UPDATE || update_type == ARF_UPDATE) {
-      int buf_idx = update_type == ARF_UPDATE;
+      int buf_idx = gf_group->frame_type[gf_index] == INTER_FRAME;
       int lookahead_idx = gf_group->arf_src_offset[gf_index] +
                           gf_group->cur_frame_idx[gf_index];
       // This function is designed to be called multiple times after

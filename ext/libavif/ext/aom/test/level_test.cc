@@ -22,7 +22,7 @@
 namespace {
 const int kLevelMin = 0;
 const int kLevelMax = 31;
-const int kLevelKeepStats = 24;
+const int kLevelKeepStats = 32;
 // Speed settings tested
 static const int kCpuUsedVectors[] = {
   1,
@@ -64,6 +64,9 @@ class LevelTest
       }
     }
 
+    int num_operating_points;
+    encoder->Control(AV1E_GET_NUM_OPERATING_POINTS, &num_operating_points);
+    ASSERT_EQ(num_operating_points, 1);
     encoder->Control(AV1E_GET_SEQ_LEVEL_IDX, level_);
     ASSERT_LE(level_[0], kLevelMax);
     ASSERT_GE(level_[0], kLevelMin);
@@ -84,10 +87,10 @@ TEST_P(LevelTest, TestTargetLevelApi) {
   for (int operating_point = 0; operating_point <= 32; ++operating_point) {
     for (int level = 0; level <= 32; ++level) {
       const int target_level = operating_point * 100 + level;
-      if ((level <= 24 && level != 2 && level != 3 && level != 6 &&
-           level != 7 && level != 10 && level != 11 && level != 20 &&
-           level != 21 && level != 22 && level != 23) ||
-          level == 31 || operating_point > 31) {
+      if ((level < 28 && level != 2 && level != 3 && level != 6 && level != 7 &&
+           level != 10 && level != 11) ||
+          level == kLevelMax || level == kLevelKeepStats ||
+          operating_point > 31) {
         EXPECT_EQ(AOM_CODEC_OK,
                   AOM_CODEC_CONTROL_TYPECHECKED(
                       &enc, AV1E_SET_TARGET_SEQ_LEVEL_IDX, target_level));
@@ -104,7 +107,7 @@ TEST_P(LevelTest, TestTargetLevelApi) {
 TEST_P(LevelTest, TestTargetLevel19) {
   std::unique_ptr<libaom_test::VideoSource> video;
   video.reset(new libaom_test::Y4mVideoSource("park_joy_90p_8_420.y4m", 0, 10));
-  ASSERT_TRUE(video.get() != NULL);
+  ASSERT_NE(video, nullptr);
   // Level index 19 corresponding to level 6.3.
   target_level_ = 19;
   ASSERT_NO_FATAL_FAILURE(RunLoop(video.get()));
@@ -146,6 +149,17 @@ TEST_P(LevelTest, TestTargetLevel0) {
     cfg_.rc_target_bitrate = 4000;
     ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
     ASSERT_EQ(level_[0], target_level);
+  }
+}
+
+TEST_P(LevelTest, TestTargetLevelRecode) {
+  if (cpu_used_ == 4 && encoding_mode_ == ::libaom_test::kTwoPassGood) {
+    libaom_test::I420VideoSource video("rand_noise_w1280h720.yuv", 1280, 720,
+                                       25, 1, 0, 10);
+    const int target_level = 0005;
+    target_level_ = target_level;
+    cfg_.rc_target_bitrate = 5000;
+    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
   }
 }
 

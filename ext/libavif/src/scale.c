@@ -5,12 +5,18 @@
 
 #if !defined(AVIF_LIBYUV_ENABLED)
 
-avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight, uint32_t imageSizeLimit, avifDiagnostics * diag)
+avifBool avifImageScale(avifImage * image,
+                        uint32_t dstWidth,
+                        uint32_t dstHeight,
+                        uint32_t imageSizeLimit,
+                        uint32_t imageDimensionLimit,
+                        avifDiagnostics * diag)
 {
     (void)image;
     (void)dstWidth;
     (void)dstHeight;
     (void)imageSizeLimit;
+    (void)imageDimensionLimit;
     avifDiagnosticsPrintf(diag, "avifImageScale() called, but is unimplemented without libyuv!");
     return AVIF_FALSE;
 }
@@ -22,6 +28,11 @@ avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wstrict-prototypes" // "this function declaration is not a prototype"
+// The newline at the end of libyuv/version.h was accidentally deleted in version 1792 and restored
+// in version 1813:
+// https://chromium-review.googlesource.com/c/libyuv/libyuv/+/3183182
+// https://chromium-review.googlesource.com/c/libyuv/libyuv/+/3527834
+#pragma clang diagnostic ignored "-Wnewline-eof"       // "no newline at end of file"
 #endif
 #include <libyuv.h>
 #if defined(__clang__)
@@ -31,7 +42,12 @@ avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight
 // This should be configurable and/or smarter. kFilterBox has the highest quality but is the slowest.
 #define AVIF_LIBYUV_FILTER_MODE kFilterBox
 
-avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight, uint32_t imageSizeLimit, avifDiagnostics * diag)
+avifBool avifImageScale(avifImage * image,
+                        uint32_t dstWidth,
+                        uint32_t dstHeight,
+                        uint32_t imageSizeLimit,
+                        uint32_t imageDimensionLimit,
+                        avifDiagnostics * diag)
 {
     if ((image->width == dstWidth) && (image->height == dstHeight)) {
         // Nothing to do
@@ -42,7 +58,7 @@ avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight
         avifDiagnosticsPrintf(diag, "avifImageScale requested invalid dst dimensions [%ux%u]", dstWidth, dstHeight);
         return AVIF_FALSE;
     }
-    if (dstWidth > (imageSizeLimit / dstHeight)) {
+    if (avifDimensionsTooLarge(dstWidth, dstHeight, imageSizeLimit, imageDimensionLimit)) {
         avifDiagnosticsPrintf(diag, "avifImageScale requested dst dimensions that are too large [%ux%u]", dstWidth, dstHeight);
         return AVIF_FALSE;
     }
@@ -84,7 +100,11 @@ avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight
     }
 
     if (srcYUVPlanes[0]) {
-        avifImageAllocatePlanes(image, AVIF_PLANES_YUV);
+        const avifResult allocationResult = avifImageAllocatePlanes(image, AVIF_PLANES_YUV);
+        if (allocationResult != AVIF_RESULT_OK) {
+            avifDiagnosticsPrintf(diag, "Allocation of YUV planes failed: %s", avifResultToString(allocationResult));
+            return AVIF_FALSE;
+        }
 
         avifPixelFormatInfo formatInfo;
         avifGetPixelFormatInfo(image->yuvFormat, &formatInfo);
@@ -107,7 +127,11 @@ avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight
                 const uint32_t srcStride = srcYUVRowBytes[i] / 2;
                 uint16_t * const dstPlane = (uint16_t *)image->yuvPlanes[i];
                 const uint32_t dstStride = image->yuvRowBytes[i] / 2;
+#if LIBYUV_VERSION >= 1774
                 ScalePlane_12(srcPlane, srcStride, srcW, srcH, dstPlane, dstStride, dstW, dstH, AVIF_LIBYUV_FILTER_MODE);
+#else
+                ScalePlane_16(srcPlane, srcStride, srcW, srcH, dstPlane, dstStride, dstW, dstH, AVIF_LIBYUV_FILTER_MODE);
+#endif
             } else {
                 uint8_t * const srcPlane = srcYUVPlanes[i];
                 const uint32_t srcStride = srcYUVRowBytes[i];
@@ -123,14 +147,22 @@ avifBool avifImageScale(avifImage * image, uint32_t dstWidth, uint32_t dstHeight
     }
 
     if (srcAlphaPlane) {
-        avifImageAllocatePlanes(image, AVIF_PLANES_A);
+        const avifResult allocationResult = avifImageAllocatePlanes(image, AVIF_PLANES_A);
+        if (allocationResult != AVIF_RESULT_OK) {
+            avifDiagnosticsPrintf(diag, "Allocation of alpha plane failed: %s", avifResultToString(allocationResult));
+            return AVIF_FALSE;
+        }
 
         if (image->depth > 8) {
             uint16_t * const srcPlane = (uint16_t *)srcAlphaPlane;
             const uint32_t srcStride = srcAlphaRowBytes / 2;
             uint16_t * const dstPlane = (uint16_t *)image->alphaPlane;
             const uint32_t dstStride = image->alphaRowBytes / 2;
+#if LIBYUV_VERSION >= 1774
             ScalePlane_12(srcPlane, srcStride, srcWidth, srcHeight, dstPlane, dstStride, dstWidth, dstHeight, AVIF_LIBYUV_FILTER_MODE);
+#else
+            ScalePlane_16(srcPlane, srcStride, srcWidth, srcHeight, dstPlane, dstStride, dstWidth, dstHeight, AVIF_LIBYUV_FILTER_MODE);
+#endif
         } else {
             uint8_t * const srcPlane = srcAlphaPlane;
             const uint32_t srcStride = srcAlphaRowBytes;

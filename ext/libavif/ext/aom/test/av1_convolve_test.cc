@@ -183,13 +183,13 @@ TEST_F(AV1ConvolveParametersTest, GetHighbdTestParams) {
 template <typename T>
 class AV1ConvolveTest : public ::testing::TestWithParam<TestParam<T>> {
  public:
-  virtual ~AV1ConvolveTest() { TearDown(); }
+  ~AV1ConvolveTest() override { TearDown(); }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     rnd_.Reset(libaom_test::ACMRandom::DeterministicSeed());
   }
 
-  virtual void TearDown() override {}
+  void TearDown() override {}
 
   // Randomizes the 8-bit input buffer and returns a pointer to it. Note that
   // the pointer is safe to use with an 8-tap filter. The stride can range
@@ -352,13 +352,15 @@ class AV1ConvolveXTest : public AV1ConvolveTest<convolve_x_func> {
 
     const InterpFilterParams *filter_params_x =
         av1_get_interp_filter_params_with_block_size(filter, width);
-    ConvolveParams conv_params1 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params1 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     const uint8_t *input = FirstRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
     av1_convolve_x_sr_c(input, width, reference, kOutputStride, width, height,
                         filter_params_x, sub_x, &conv_params1);
 
-    ConvolveParams conv_params2 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params2 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     convolve_x_func test_func = GetParam().TestFunction();
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
     test_func(input, width, test, kOutputStride, width, height, filter_params_x,
@@ -373,7 +375,8 @@ class AV1ConvolveXTest : public AV1ConvolveTest<convolve_x_func> {
 
     const InterpFilterParams *filter_params_x =
         av1_get_interp_filter_params_with_block_size(filter, width);
-    ConvolveParams conv_params1 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params1 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     const uint8_t *input = FirstRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
 
@@ -385,7 +388,8 @@ class AV1ConvolveXTest : public AV1ConvolveTest<convolve_x_func> {
     }
     aom_usec_timer_mark(&timer);
     const double time1 = static_cast<double>(aom_usec_timer_elapsed(&timer));
-    ConvolveParams conv_params2 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params2 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     convolve_x_func test_func = GetParam().TestFunction();
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
 
@@ -461,15 +465,15 @@ class AV1ConvolveXHighbdTest : public AV1ConvolveTest<highbd_convolve_x_func> {
     const InterpFilterParams *filter_params_x =
         av1_get_interp_filter_params_with_block_size(filter, width);
     ConvolveParams conv_params1 =
-        get_conv_params_no_round(0, 0, NULL, 0, 0, bit_depth);
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, bit_depth);
     const uint16_t *input = FirstRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
-    av1_highbd_convolve_x_sr(input, width, reference, kOutputStride, width,
-                             height, filter_params_x, sub_x, &conv_params1,
-                             bit_depth);
+    av1_highbd_convolve_x_sr_c(input, width, reference, kOutputStride, width,
+                               height, filter_params_x, sub_x, &conv_params1,
+                               bit_depth);
 
     ConvolveParams conv_params2 =
-        get_conv_params_no_round(0, 0, NULL, 0, 0, bit_depth);
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, bit_depth);
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
     GetParam().TestFunction()(input, width, test, kOutputStride, width, height,
                               filter_params_x, sub_x, &conv_params2, bit_depth);
@@ -483,7 +487,8 @@ class AV1ConvolveXHighbdTest : public AV1ConvolveTest<highbd_convolve_x_func> {
     const int bit_depth = GetParam().BitDepth();
     const InterpFilterParams *filter_params_x =
         av1_get_interp_filter_params_with_block_size(filter, width);
-    ConvolveParams conv_params1 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params1 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     const uint16_t *input = FirstRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
 
@@ -496,7 +501,8 @@ class AV1ConvolveXHighbdTest : public AV1ConvolveTest<highbd_convolve_x_func> {
     }
     aom_usec_timer_mark(&timer);
     const double time1 = static_cast<double>(aom_usec_timer_elapsed(&timer));
-    ConvolveParams conv_params2 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params2 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     highbd_convolve_x_func test_func = GetParam().TestFunction();
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
 
@@ -671,8 +677,8 @@ class AV1ConvolveYHighbdTest : public AV1ConvolveTest<highbd_convolve_y_func> {
         av1_get_interp_filter_params_with_block_size(filter, height);
     const uint16_t *input = FirstRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
-    av1_highbd_convolve_y_sr(input, width, reference, kOutputStride, width,
-                             height, filter_params_y, sub_y, bit_depth);
+    av1_highbd_convolve_y_sr_c(input, width, reference, kOutputStride, width,
+                               height, filter_params_y, sub_y, bit_depth);
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
     GetParam().TestFunction()(input, width, test, kOutputStride, width, height,
                               filter_params_y, sub_y, bit_depth);
@@ -745,7 +751,7 @@ class AV1ConvolveCopyTest : public AV1ConvolveTest<convolve_copy_func> {
     const int height = GetParam().Block().Height();
     const uint8_t *input = FirstRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
-    aom_convolve_copy(input, width, reference, kOutputStride, width, height);
+    aom_convolve_copy_c(input, width, reference, kOutputStride, width, height);
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
     GetParam().TestFunction()(input, width, test, kOutputStride, width, height);
     AssertOutputBufferEq(reference, test, width, height);
@@ -774,16 +780,6 @@ INSTANTIATE_TEST_SUITE_P(NEON, AV1ConvolveCopyTest,
                          BuildLowbdParams(aom_convolve_copy_neon));
 #endif
 
-#if HAVE_MSA
-INSTANTIATE_TEST_SUITE_P(MSA, AV1ConvolveCopyTest,
-                         BuildLowbdParams(aom_convolve_copy_msa));
-#endif
-
-#if HAVE_DSPR2
-INSTANTIATE_TEST_SUITE_P(DSPR2, AV1ConvolveCopyTest,
-                         BuildLowbdParams(aom_convolve_copy_dspr2));
-#endif
-
 #if CONFIG_AV1_HIGHBITDEPTH
 ///////////////////////////////////////////////////////////////
 // Single reference convolve-copy functions (high bit-depth)
@@ -801,8 +797,8 @@ class AV1ConvolveCopyHighbdTest
     const int height = block.Height();
     const uint16_t *input = FirstRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
-    aom_highbd_convolve_copy(input, width, reference, kOutputStride, width,
-                             height);
+    aom_highbd_convolve_copy_c(input, width, reference, kOutputStride, width,
+                               height);
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
     GetParam().TestFunction()(input, width, test, kOutputStride, width, height);
     AssertOutputBufferEq(reference, test, width, height);
@@ -878,12 +874,14 @@ class AV1Convolve2DTest : public AV1ConvolveTest<convolve_2d_func> {
         av1_get_interp_filter_params_with_block_size(v_f, height);
     const uint8_t *input = FirstRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
-    ConvolveParams conv_params1 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params1 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     av1_convolve_2d_sr_c(input, width, reference, kOutputStride, width, height,
                          filter_params_x, filter_params_y, sub_x, sub_y,
                          &conv_params1);
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
-    ConvolveParams conv_params2 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params2 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     GetParam().TestFunction()(input, width, test, kOutputStride, width, height,
                               filter_params_x, filter_params_y, sub_x, sub_y,
                               &conv_params2);
@@ -901,7 +899,8 @@ class AV1Convolve2DTest : public AV1ConvolveTest<convolve_2d_func> {
         av1_get_interp_filter_params_with_block_size(v_f, height);
     const uint8_t *input = FirstRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
-    ConvolveParams conv_params1 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params1 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     aom_usec_timer timer;
     aom_usec_timer_start(&timer);
     for (int i = 0; i < num_iters; ++i) {
@@ -912,7 +911,8 @@ class AV1Convolve2DTest : public AV1ConvolveTest<convolve_2d_func> {
     aom_usec_timer_mark(&timer);
     const double time1 = static_cast<double>(aom_usec_timer_elapsed(&timer));
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
-    ConvolveParams conv_params2 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params2 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     aom_usec_timer_start(&timer);
     for (int i = 0; i < num_iters; ++i) {
       GetParam().TestFunction()(input, width, test, kOutputStride, width,
@@ -1004,13 +1004,13 @@ class AV1Convolve2DHighbdTest
     const uint16_t *input = FirstRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
     ConvolveParams conv_params1 =
-        get_conv_params_no_round(0, 0, NULL, 0, 0, bit_depth);
-    av1_highbd_convolve_2d_sr(input, width, reference, kOutputStride, width,
-                              height, filter_params_x, filter_params_y, sub_x,
-                              sub_y, &conv_params1, bit_depth);
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, bit_depth);
+    av1_highbd_convolve_2d_sr_c(input, width, reference, kOutputStride, width,
+                                height, filter_params_x, filter_params_y, sub_x,
+                                sub_y, &conv_params1, bit_depth);
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
     ConvolveParams conv_params2 =
-        get_conv_params_no_round(0, 0, NULL, 0, 0, bit_depth);
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, bit_depth);
     GetParam().TestFunction()(input, width, test, kOutputStride, width, height,
                               filter_params_x, filter_params_y, sub_x, sub_y,
                               &conv_params2, bit_depth);
@@ -1028,7 +1028,8 @@ class AV1Convolve2DHighbdTest
         av1_get_interp_filter_params_with_block_size(v_f, height);
     const uint16_t *input = FirstRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
-    ConvolveParams conv_params1 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params1 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     aom_usec_timer timer;
     aom_usec_timer_start(&timer);
     for (int i = 0; i < num_iters; ++i) {
@@ -1039,7 +1040,8 @@ class AV1Convolve2DHighbdTest
     aom_usec_timer_mark(&timer);
     const double time1 = static_cast<double>(aom_usec_timer_elapsed(&timer));
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
-    ConvolveParams conv_params2 = get_conv_params_no_round(0, 0, NULL, 0, 0, 8);
+    ConvolveParams conv_params2 =
+        get_conv_params_no_round(0, 0, nullptr, 0, 0, 8);
     aom_usec_timer_start(&timer);
     for (int i = 0; i < num_iters; ++i) {
       GetParam().TestFunction()(input, width, test, kOutputStride, width,
@@ -1222,7 +1224,7 @@ class AV1ConvolveXCompoundTest : public AV1ConvolveTest<convolve_x_func> {
   }
 
   virtual convolve_x_func ReferenceFunc() const {
-    return av1_dist_wtd_convolve_x;
+    return av1_dist_wtd_convolve_x_c;
   }
 
  private:
@@ -1312,7 +1314,7 @@ class AV1ConvolveXHighbdCompoundTest
   }
 
   virtual highbd_convolve_x_func ReferenceFunc() const {
-    return av1_highbd_dist_wtd_convolve_x;
+    return av1_highbd_dist_wtd_convolve_x_c;
   }
 
  private:
@@ -1385,13 +1387,13 @@ INSTANTIATE_TEST_SUITE_P(
 // logic; they only differentiate the filter parameters and reference function.
 class AV1ConvolveYCompoundTest : public AV1ConvolveXCompoundTest {
  protected:
-  virtual const InterpFilterParams *FilterParams(
+  const InterpFilterParams *FilterParams(
       InterpFilter f, const BlockSize &block) const override {
     return av1_get_interp_filter_params_with_block_size(f, block.Height());
   }
 
-  virtual convolve_x_func ReferenceFunc() const override {
-    return av1_dist_wtd_convolve_y;
+  convolve_x_func ReferenceFunc() const override {
+    return av1_dist_wtd_convolve_y_c;
   }
 };
 
@@ -1422,10 +1424,10 @@ INSTANTIATE_TEST_SUITE_P(NEON, AV1ConvolveYCompoundTest,
 
 // Again, the X and Y convolve functions have the same type signature and logic.
 class AV1ConvolveYHighbdCompoundTest : public AV1ConvolveXHighbdCompoundTest {
-  virtual highbd_convolve_x_func ReferenceFunc() const override {
-    return av1_highbd_dist_wtd_convolve_y;
+  highbd_convolve_x_func ReferenceFunc() const override {
+    return av1_highbd_dist_wtd_convolve_y_c;
   }
-  virtual const InterpFilterParams *FilterParams(
+  const InterpFilterParams *FilterParams(
       InterpFilter f, const BlockSize &block) const override {
     return av1_get_interp_filter_params_with_block_size(f, block.Height());
   }
@@ -1467,6 +1469,11 @@ class AV1Convolve2DCopyCompoundTest
       TestConvolve(compound);
     }
   }
+  void SpeedTest() {
+    for (const auto &compound : GetCompoundParams()) {
+      TestConvolveSpeed(compound, 100000);
+    }
+  }
 
  private:
   void TestConvolve(const CompoundParam &compound) {
@@ -1478,7 +1485,7 @@ class AV1Convolve2DCopyCompoundTest
     const uint8_t *input2 = SecondRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
     DECLARE_ALIGNED(32, CONV_BUF_TYPE, reference_conv_buf[MAX_SB_SQUARE]);
-    Convolve(av1_dist_wtd_convolve_2d_copy, input1, input2, reference,
+    Convolve(av1_dist_wtd_convolve_2d_copy_c, input1, input2, reference,
              reference_conv_buf, compound);
 
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
@@ -1490,7 +1497,45 @@ class AV1Convolve2DCopyCompoundTest
     AssertOutputBufferEq(reference, test, width, height);
   }
 
- private:
+  void TestConvolveSpeed(const CompoundParam &compound, const int num_iters) {
+    const int width = GetParam().Block().Width();
+    const int height = GetParam().Block().Height();
+
+    const uint8_t *src0 = FirstRandomInput8(GetParam());
+    const uint8_t *src1 = SecondRandomInput8(GetParam());
+    DECLARE_ALIGNED(32, uint8_t, dst[MAX_SB_SQUARE]);
+    DECLARE_ALIGNED(32, CONV_BUF_TYPE, conv_buf[MAX_SB_SQUARE]);
+
+    const auto test_func = GetParam().TestFunction();
+
+    ConvolveParams conv_params_0 =
+        GetConvolveParams(0, conv_buf, kOutputStride, 8, compound);
+    ConvolveParams conv_params_1 =
+        GetConvolveParams(1, conv_buf, kOutputStride, 8, compound);
+
+    aom_usec_timer timer;
+    aom_usec_timer_start(&timer);
+    for (int i = 0; i < num_iters; ++i) {
+      av1_dist_wtd_convolve_2d_copy_c(src0, width, dst, kOutputStride, width,
+                                      height, &conv_params_0);
+      av1_dist_wtd_convolve_2d_copy_c(src1, width, dst, kOutputStride, width,
+                                      height, &conv_params_1);
+    }
+    aom_usec_timer_mark(&timer);
+    const double time1 = static_cast<double>(aom_usec_timer_elapsed(&timer));
+
+    aom_usec_timer_start(&timer);
+    for (int i = 0; i < num_iters; ++i) {
+      test_func(src0, width, dst, kOutputStride, width, height, &conv_params_0);
+      test_func(src1, width, dst, kOutputStride, width, height, &conv_params_1);
+    }
+    aom_usec_timer_mark(&timer);
+    const double time2 = static_cast<double>(aom_usec_timer_elapsed(&timer));
+    printf("Dist Weighted: %d %3dx%-3d:%7.2f/%7.2fns (%3.2f)\n",
+           compound.UseDistWtdCompAvg(), width, height, time1, time2,
+           time1 / time2);
+  }
+
   void Convolve(compound_conv_2d_copy_func test_func, const uint8_t *src1,
                 const uint8_t *src2, uint8_t *dst, uint16_t *conv_buf,
                 const CompoundParam &compound) {
@@ -1507,6 +1552,7 @@ class AV1Convolve2DCopyCompoundTest
 };
 
 TEST_P(AV1Convolve2DCopyCompoundTest, RunTest) { RunTest(); }
+TEST_P(AV1Convolve2DCopyCompoundTest, DISABLED_SpeedTest) { SpeedTest(); }
 
 INSTANTIATE_TEST_SUITE_P(C, AV1Convolve2DCopyCompoundTest,
                          BuildLowbdLumaParams(av1_dist_wtd_convolve_2d_copy_c));
@@ -1559,7 +1605,7 @@ class AV1Convolve2DCopyHighbdCompoundTest
     const uint16_t *input2 = SecondRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
     DECLARE_ALIGNED(32, CONV_BUF_TYPE, reference_conv_buf[MAX_SB_SQUARE]);
-    Convolve(av1_highbd_dist_wtd_convolve_2d_copy, input1, input2, reference,
+    Convolve(av1_highbd_dist_wtd_convolve_2d_copy_c, input1, input2, reference,
              reference_conv_buf, compound);
 
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
@@ -1646,7 +1692,7 @@ class AV1Convolve2DCompoundTest : public AV1ConvolveTest<convolve_2d_func> {
     const uint8_t *input2 = SecondRandomInput8(GetParam());
     DECLARE_ALIGNED(32, uint8_t, reference[MAX_SB_SQUARE]);
     DECLARE_ALIGNED(32, CONV_BUF_TYPE, reference_conv_buf[MAX_SB_SQUARE]);
-    Convolve(av1_dist_wtd_convolve_2d, input1, input2, reference,
+    Convolve(av1_dist_wtd_convolve_2d_c, input1, input2, reference,
              reference_conv_buf, compound, h_f, v_f, sub_x, sub_y);
 
     DECLARE_ALIGNED(32, uint8_t, test[MAX_SB_SQUARE]);
@@ -1744,7 +1790,7 @@ class AV1Convolve2DHighbdCompoundTest
     const uint16_t *input2 = SecondRandomInput16(GetParam());
     DECLARE_ALIGNED(32, uint16_t, reference[MAX_SB_SQUARE]);
     DECLARE_ALIGNED(32, CONV_BUF_TYPE, reference_conv_buf[MAX_SB_SQUARE]);
-    Convolve(av1_highbd_dist_wtd_convolve_2d, input1, input2, reference,
+    Convolve(av1_highbd_dist_wtd_convolve_2d_c, input1, input2, reference,
              reference_conv_buf, compound, h_f, v_f, sub_x, sub_y);
 
     DECLARE_ALIGNED(32, uint16_t, test[MAX_SB_SQUARE]);
