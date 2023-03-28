@@ -844,7 +844,6 @@ GimpImage *load_image (GFile       *file,
     }
 
   gimp_image_undo_disable (image);
-  gimp_image_set_file (image, file);
 
   if (profile)
     {
