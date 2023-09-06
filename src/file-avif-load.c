@@ -703,6 +703,10 @@ GimpImage *load_image (GFile       *file,
       avifRGBImage rgb;
       avifRGBImageSetDefaults (&rgb, avif);
 
+#if AVIF_VERSION >= 1000000
+      rgb.maxThreads = decoder->maxThreads;
+#endif
+
       if (loadalpha)
         {
           rgb.format = AVIF_RGB_FORMAT_RGBA;
@@ -939,7 +943,7 @@ GimpImage *load_image (GFile       *file,
 
   if (avif->transformFlags & AVIF_TRANSFORM_IMIR)
     {
-#if AVIF_VERSION > 90100
+#if AVIF_VERSION > 90100 && AVIF_VERSION < 1000000
       switch (avif->imir.mode)
 #else
       switch (avif->imir.axis)
